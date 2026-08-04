@@ -6,9 +6,9 @@ This repository contains the application framework only. It contains no user job
 
 ## Interface preview
 
-![Market Desk interface preview with fictional sample data](public/og.png)
+![Market Desk dashboard running in a clean GitHub Codespace](docs/market-desk-dashboard.png)
 
-*Illustrative preview—the organizations, jobs, deadlines, and application activity shown above are fictional.*
+*Captured from a fresh GitHub Codespace using the public repository, with no saved jobs, credentials, or private application data.*
 
 ## What it does
 
