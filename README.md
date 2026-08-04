@@ -4,6 +4,12 @@ Market Desk is a privacy-first, self-hosted application tracker for the economic
 
 This repository contains the application framework only. It contains no user jobs, application documents, API keys, Dropbox tokens, or deployed database.
 
+## Interface preview
+
+![Market Desk interface preview with fictional sample data](public/og.png)
+
+*Illustrative preview—the organizations, jobs, deadlines, and application activity shown above are fictional.*
+
 ## What it does
 
 - Imports individual public job-posting links and extracts their full description, employer, location, salary, deadline, and required materials.
