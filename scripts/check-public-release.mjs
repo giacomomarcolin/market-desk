@@ -28,6 +28,10 @@ const textExtensions = new Set([
   ".yaml",
 ]);
 const findings = [];
+const privateToolingTerms = [
+  ["chat", "gpt"].join(""),
+  ["co", "dex"].join(""),
+];
 
 function relative(file) {
   return path.relative(root, file) || ".";
@@ -94,8 +98,10 @@ for (const file of files) {
   if (content.includes(personalPathPrefix)) {
     report(file, "contains an absolute personal filesystem path");
   }
-  if (/https:\/\/[a-z0-9.-]+\.chatgpt\.site\b/i.test(content)) {
-    report(file, "contains a specific deployed Sites URL");
+  for (const term of privateToolingTerms) {
+    if (content.toLowerCase().includes(term)) {
+      report(file, "contains a private tooling brand reference");
+    }
   }
   if (
     relative(file).startsWith(`drizzle${path.sep}`) &&
