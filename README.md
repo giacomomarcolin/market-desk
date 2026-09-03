@@ -31,43 +31,71 @@ See [PRIVACY.md](PRIVACY.md) for the complete data boundary and [SECURITY.md](SE
 
 ## Requirements
 
-- Node.js 22.13 or newer
-- npm
-- A deployment environment compatible with the included vinext and Cloudflare Worker build
-- D1 bound as `DB`
-- R2 bound as `FILES`
-- Two independent encryption secrets
-- Optional: an OpenAI API key for link extraction
-- Optional: a Dropbox API app for file backup
+- A GitHub account with Codespaces access for the easiest browser-based setup; or
+- Node.js 22.13 or newer and npm for local setup
+- For local development, an operating system supported by Wrangler: macOS 13.5+, Windows 11, or Linux with glibc 2.35+
 
-## Local setup
+The local development server creates an emulated D1 database and R2 file store automatically. A hosted deployment needs D1 bound as `DB`, R2 bound as `FILES`, and two independent encryption secrets. An OpenAI API key and Dropbox API app are optional.
 
-1. Clone the repository and install dependencies:
+## Quick start
+
+### GitHub Codespaces (easiest)
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/alisonyzhao/market-desk?quickstart=1)
+
+1. Open the link above and create or resume a codespace.
+2. When its terminal is ready, install the pinned dependencies:
 
    ```bash
-   npm install
+   npm ci
    ```
 
-2. Copy the environment template:
+3. Create `.env.local` with two independent random encryption secrets:
 
    ```bash
-   cp .env.example .env.local
+   node -e 'const { randomBytes } = require("node:crypto"); const { writeFileSync } = require("node:fs"); writeFileSync(".env.local", `DROPBOX_TOKEN_KEY=${randomBytes(32).toString("base64")}\nOPENAI_KEY_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}\n`);'
    ```
 
-3. Generate two different random secrets and replace the placeholders in `.env.local`:
+4. Start Market Desk:
 
    ```bash
-   openssl rand -base64 32
-   openssl rand -base64 32
+   npm run dev -- --host 0.0.0.0
    ```
 
-4. Start the local development server:
+5. When GitHub reports that port 3000 is available, choose **Open in Browser**.
+
+Each codespace has its own temporary local database and file store. Stop or delete it when you no longer need it.
+
+### Local computer
+
+1. Clone the repository and enter its folder:
 
    ```bash
+   git clone https://github.com/alisonyzhao/market-desk.git
+   cd market-desk
+   ```
+
+2. Install the pinned dependencies, create local encryption secrets, and start the app:
+
+   ```bash
+   npm ci
+   node -e 'const { randomBytes } = require("node:crypto"); const { writeFileSync } = require("node:fs"); writeFileSync(".env.local", `DROPBOX_TOKEN_KEY=${randomBytes(32).toString("base64")}\nOPENAI_KEY_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}\n`);'
    npm run dev
    ```
 
-The local database and object-storage state are ignored by Git. Never commit `.env.local`, `.dev.vars`, `.wrangler`, database files, or uploaded materials.
+3. Open the local URL printed in the terminal. Your local D1 database and R2 files are stored under `.wrangler/`.
+
+The local database, object-storage state, and secrets are ignored by Git. Never commit `.env.local`, `.dev.vars`, `.wrangler`, database files, or uploaded materials.
+
+### Verify the installation
+
+Run the complete release check from the project folder:
+
+```bash
+npm test
+```
+
+A successful installation ends with all tests passing and no failed tests.
 
 ## Deploying with Sites
 
