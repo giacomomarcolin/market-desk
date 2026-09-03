@@ -8,7 +8,6 @@ This repository contains the application framework only. It contains no user job
 
 ![Market Desk dashboard running in a clean GitHub Codespace](docs/market-desk-dashboard.png)
 
-*Captured from a fresh GitHub Codespace using the public repository, with no saved jobs, credentials, or private application data.*
 
 ## What it does
 
