@@ -158,4 +158,4 @@ Market Desk is available under the [MIT License](LICENSE).
 
 ## Independence
 
-This project is not affiliated with or endorsed by the American Economic Association, EconJobMarket, AcademicJobsOnline, Interfolio, X, Dropbox, OpenAI, or any employer whose public posting may be imported by a user.
+This project is not affiliated with or endorsed by any employer or platform.
