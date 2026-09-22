@@ -95,18 +95,25 @@ h2 { margin: 4px 0 0; font-size: 21px; font-weight: 500; letter-spacing: -.01em;
 .bucket-tabs button span { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 4px; border-radius: 10px; background: #e4ded4; font-size: 8px; }
 .bucket-tabs button.selected { background: var(--ink); color: white; }.bucket-tabs button.selected span { background: rgba(255,255,255,.16); }
 .table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+table { width: 100%; border-collapse: collapse; min-width: 1180px; table-layout: fixed; }
+th:nth-child(1), td:nth-child(1) { width: 300px; }
+th:nth-child(2), td:nth-child(2) { width: 230px; }
+th:nth-child(3), td:nth-child(3) { width: 100px; }
+th:nth-child(4), td:nth-child(4) { width: 170px; }
+th:nth-child(5), td:nth-child(5) { width: 110px; }
+th:nth-child(6), td:nth-child(6) { width: 105px; }
+th:nth-child(7), td:nth-child(7) { width: 115px; }
+th:nth-child(8), td:nth-child(8) { width: 50px; }
 th { height: 37px; padding: 0 12px; color: var(--muted); text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: .1em; background: #f4f0e8; border-bottom: 1px solid var(--rule); }
 td { padding: 11px 12px; border-bottom: 1px solid #e4ded4; vertical-align: middle; font-size: 11px; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: #f7f3eb; }
-.opportunity { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; align-items: center; min-width: 285px; }
-.opportunity-button { width: 100%; border: 0; background: transparent; color: inherit; padding: 0; text-align: left; }
+.opportunity { display: block; min-width: 0; }
+.opportunity-button { display: block; width: 100%; border: 0; background: transparent; color: inherit; padding: 0; text-align: left; }
 .opportunity-button:hover strong { color: var(--burgundy); text-decoration: underline; text-underline-offset: 3px; }
-.org-mark { width: 58px; height: 58px; padding: 5px; display: -webkit-box; place-items: center; align-content: center; overflow: hidden; background: #ebe5da; color: #5d5650; font-size: 7px; line-height: 1.12; font-weight: 700; text-align: center; overflow-wrap: anywhere; text-transform: none; border: 1px solid #d9d0c3; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
-.opportunity strong { display: block; font: 600 13px Georgia, serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
-.opportunity p { margin: 4px 0 2px; color: var(--muted); font-size: 9px; }
-.opportunity div > span { color: var(--burgundy); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.opportunity strong { display: -webkit-box; overflow: hidden; font: 600 13px Georgia, serif; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.opportunity > span { display: block; margin-top: 4px; color: var(--burgundy); font-size: 8px; line-height: 1.3; text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; }
+.organization-cell { color: var(--ink); font-size: 11px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .job-place { display: block; max-width: 170px; color: var(--ink); font-size: 10px; line-height: 1.3; }.cell-note.salary { margin-top: 4px; max-width: 180px; color: #2f6d55; font-weight: 700; white-space: normal; line-height: 1.25; }
 .sector { padding: 4px 6px; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: #e5e2db; color: #5c5851; }
 .sector-academic { background: #e6ebe3; color: #4f604b; }.sector-postdoc { background: #e8e4ef; color: #625572; }.sector-industry { background: #e3e9ed; color: #405a6d; }.sector-government { background: #eee7db; color: #755b34; }

@@ -62,7 +62,9 @@ test("uses the fixed lowest-cost AI extraction model with structured output", as
 test("shows employer names, location, and salary on tracked jobs", async () => {
   const marketDesk = await source("../app/market-desk.tsx");
 
-  assert.match(marketDesk, /className="org-mark" title=\{job\.organization\}>\{job\.organization\}/);
+  assert.match(marketDesk, /<th>Position<\/th><th>Institution \/ Company<\/th>/);
+  assert.match(marketDesk, /className="organization-cell">\{job\.organization\}<\/td>/);
+  assert.match(marketDesk, /className="opportunity opportunity-button" onClick=\{\(\) => onOpen\(job\.id\)\}><strong>\{job\.title\}<\/strong><span>\{job\.source\}/);
   assert.match(marketDesk, /Location \/ salary/);
   assert.match(marketDesk, /Salary not listed/);
   assert.match(marketDesk, /AI extraction/);

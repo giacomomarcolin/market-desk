@@ -775,13 +775,14 @@ function JobTable({ jobs, loading, onUpdate, onOpen }: { jobs: Job[]; loading: b
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Opportunity</th><th>Sector</th><th>Location / salary</th><th>Deadline</th><th>Requirements</th><th>Status</th><th><span className="sr-only">Star</span></th></tr></thead>
+        <thead><tr><th>Position</th><th>Institution / Company</th><th>Sector</th><th>Location / salary</th><th>Deadline</th><th>Requirements</th><th>Status</th><th><span className="sr-only">Star</span></th></tr></thead>
         <tbody>{jobs.map((job) => {
           const progress = job.requirementsTotal ? Math.round((job.requirementsDone / job.requirementsTotal) * 100) : 0;
           const deadline = deadlinePresentation(job.deadline, now);
           return (
             <tr key={job.id}>
-              <td><button className="opportunity opportunity-button" onClick={() => onOpen(job.id)}><span className="org-mark" title={job.organization}>{job.organization}</span><div><strong>{job.title}</strong><p>{job.organization}</p><span>{job.source}{job.bucket === "maybe" ? " · Maybe" : job.bucket === "skipped" ? " · Skipped" : ""}</span></div></button></td>
+              <td><button className="opportunity opportunity-button" onClick={() => onOpen(job.id)}><strong>{job.title}</strong><span>{job.source}{job.bucket === "maybe" ? " · Maybe" : job.bucket === "skipped" ? " · Skipped" : ""}</span></button></td>
+              <td className="organization-cell">{job.organization}</td>
               <td><span className={`sector sector-${job.sector.toLowerCase()}`}>{job.sector}</span></td>
               <td><span className="job-place">{job.location || "Not listed"}</span><span className={`cell-note ${job.salary ? "salary" : ""}`}>{job.salary || "Salary not listed"}</span></td>
               <td><strong className={`deadline ${deadline.tone}`}>{deadline.label}</strong><span className={`cell-note deadline-note ${deadline.tone}`}>{deadline.detail}</span></td>
