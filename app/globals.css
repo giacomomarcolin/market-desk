@@ -54,6 +54,12 @@ h2 { margin: 4px 0 0; font-size: 21px; font-weight: 500; letter-spacing: -.01em;
 .button:disabled { opacity: .6; cursor: wait; transform: none; }
 .notice { min-height: 40px; margin: -9px 0 14px; padding: 9px 12px; background: #f0e6e5; border-left: 3px solid var(--burgundy); color: #5d2832; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
 .notice button { border: 0; background: transparent; font-size: 20px; color: inherit; }
+.notice > div { min-width: 0; }
+.import-failures { margin-top: 6px; }
+.import-failures summary { cursor: pointer; font-weight: 700; }
+.import-failures ul { margin: 7px 0 2px; padding-left: 18px; }
+.import-failures li { margin-top: 5px; overflow-wrap: anywhere; }
+.import-failures li span { display: block; color: var(--muted); }
 
 .collection-strip { background: var(--ink); color: white; min-height: 70px; padding: 13px 15px; display: grid; grid-template-columns: minmax(300px, 1fr) auto auto; gap: 18px; align-items: center; box-shadow: 0 5px 16px rgba(41,39,37,.12); }
 .collection-copy { display: flex; align-items: center; gap: 11px; }
@@ -146,6 +152,7 @@ tbody tr:hover { background: #f7f3eb; }
 .modal-form input, .modal-form select { height: 40px; }.modal-form textarea { resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 5px; }
 .form-help { padding: 12px; border-left: 3px solid var(--olive); background: #edeae2; display: grid; gap: 4px; }.form-help strong { font: 600 12px Georgia, serif; }.form-help span { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.form-error { grid-column: 1 / -1; padding: 10px 12px; border-left: 3px solid var(--burgundy); background: #f5e9e9; color: #6f2633; font-size: 11px; }
 .guided-capture { padding: 13px; border: 1px solid #cfc4b6; background: #f2ece2; display: flex; justify-content: space-between; align-items: center; gap: 14px; }.guided-capture > div:first-child { display: grid; gap: 4px; }.guided-capture strong { font: 600 13px Georgia, serif; }.guided-capture span { color: var(--muted); font-size: 10px; line-height: 1.4; }.guided-capture > div:last-child { display: flex; gap: 7px; flex: 0 0 auto; }.guided-capture .button { min-height: 34px; padding: 0 10px; font-size: 10px; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(41,39,37,.48); display: flex; justify-content: flex-end; }

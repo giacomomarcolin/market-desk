@@ -115,6 +115,19 @@ test("imports jobs from any public HTTPS website", async () => {
   assert.match(linkImport, /Private, local, signed-in, and nonstandard-port addresses cannot be imported/);
 });
 
+test("imports a deduplicated batch of job links sequentially", async () => {
+  const marketDesk = await source("../app/market-desk.tsx");
+
+  assert.match(marketDesk, /<textarea name="urls"/);
+  assert.match(marketDesk, /new Set\(String\(new FormData/);
+  assert.match(marketDesk, /urls\.length > 50/);
+  assert.match(marketDesk, /for \(const \[index, url\] of urls\.entries\(\)\)/);
+  assert.match(marketDesk, /await fetch\("\/api\/import"/);
+  assert.match(marketDesk, /already saved/i);
+  assert.match(marketDesk, /Importing \$\{progress\.current\} of \$\{progress\.total\}/);
+  assert.match(marketDesk, /Show failed URLs/);
+});
+
 test("reads Interfolio positions from their public listing data", async () => {
   const linkImport = await source("../db/link-import.ts");
 

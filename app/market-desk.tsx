@@ -71,6 +71,9 @@ type JobDraft = {
   salary: string;
   postingText: string;
 };
+type LinkImportProgress = { current: number; total: number };
+type LinkImportFailure = { url: string; error: string };
+type LinkImportReport = { summary: string; failures: LinkImportFailure[] };
 
 const emptyDropbox: DropboxStatus = { configured: false, appKeySaved: false, secureStorageReady: false, connected: false, accountId: null, connectedAt: null, syncedFiles: 0, failedFiles: 0, pendingFiles: 0 };
 const emptyAI: AIStatus = { configured: false, secureStorageReady: false, configuredAt: null, model: "gpt-5-nano" };
@@ -232,6 +235,9 @@ export function MarketDesk() {
   const [jobOpen, setJobOpen] = useState(false);
   const [jobDraft, setJobDraft] = useState<JobDraft>(emptyJobDraft);
   const [linkImportOpen, setLinkImportOpen] = useState(false);
+  const [linkImportProgress, setLinkImportProgress] = useState<LinkImportProgress | null>(null);
+  const [linkImportError, setLinkImportError] = useState("");
+  const [linkImportReport, setLinkImportReport] = useState<LinkImportReport | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [dropboxOpen, setDropboxOpen] = useState(false);
   const [dropboxBusy, setDropboxBusy] = useState(false);
@@ -562,30 +568,67 @@ export function MarketDesk() {
 
   async function submitLinkImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const urls = [...new Set(String(new FormData(event.currentTarget).get("urls") || "")
+      .split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean))];
+    if (!urls.length) {
+      setLinkImportError("Enter at least one job-posting URL.");
+      return;
+    }
+    if (urls.length > 50) {
+      setLinkImportError(`A batch can contain at most 50 unique URLs. This list contains ${urls.length}.`);
+      return;
+    }
     if (!data.ai.configured) {
       setLinkImportOpen(false);
       setAiOpen(true);
       setNotice("Connect AI extraction before importing a job link.");
       return;
     }
+    setLinkImportError("");
+    setLinkImportReport(null);
     setSaving(true);
+    setLinkImportProgress({ current: 0, total: urls.length });
+    const importedIds: string[] = [];
+    const failures: LinkImportFailure[] = [];
+    let skipped = 0;
     try {
-      const url = String(new FormData(event.currentTarget).get("url") || "");
-      const response = await fetch("/api/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "The job link could not be imported.");
+      for (const [index, url] of urls.entries()) {
+        setLinkImportProgress({ current: index + 1, total: urls.length });
+        try {
+          const response = await fetch("/api/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+          });
+          const result = await response.json().catch(() => ({})) as { id?: string; error?: string };
+          if (!response.ok) {
+            const message = result.error || "The job link could not be imported.";
+            if (/already saved/i.test(message)) skipped += 1;
+            else failures.push({ url, error: message });
+          } else if (result.id) {
+            importedIds.push(result.id);
+          } else {
+            failures.push({ url, error: "The job link could not be imported." });
+          }
+        } catch (error) {
+          failures.push({ url, error: error instanceof Error ? error.message : "The job link could not be imported." });
+        }
+      }
+      const summary = `${importedIds.length} job${importedIds.length === 1 ? "" : "s"} imported, ${skipped} already saved, ${failures.length} failed.`;
       setLinkImportOpen(false);
-      setNotice("Job imported with its full readable description and extracted application-material checklist.");
       await loadData();
-      await openJob(result.id);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "The job link could not be imported.");
+      setNotice(summary);
+      setLinkImportReport({ summary, failures });
+      if (urls.length === 1 && importedIds[0]) await openJob(importedIds[0]);
+      if (urls.length > 1) {
+        setSelectedJob(null);
+        setView("jobs");
+      }
     } finally {
       setSaving(false);
+      setLinkImportProgress(null);
     }
   }
 
@@ -657,12 +700,12 @@ export function MarketDesk() {
             <button className={`button secondary ai-button ${data.ai.configured ? "connected" : ""}`} onClick={() => setAiOpen(true)}><span className="ai-dot" /> AI extraction</button>
             <button className={`button secondary dropbox-button ${data.dropbox.connected ? "connected" : ""}`} onClick={() => setDropboxOpen(true)}><span className="dropbox-dot" /> Dropbox</button>
             <button className="button secondary monitor-button" onClick={() => setMonitorOpen(true)}>+ Add monitor</button>
-            <button className="button secondary import-button" onClick={() => setLinkImportOpen(true)}>Import from link</button>
+            <button className="button secondary import-button" onClick={() => { setLinkImportError(""); setLinkImportReport(null); setLinkImportOpen(true); }}>Import from link</button>
             <button className="button primary" onClick={() => { setJobDraft(emptyJobDraft); setJobOpen(true); }}>+ Add job</button>
           </div>
         </header>
 
-        {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}>×</button></div>}
+        {notice && <div className="notice" role="status"><div><span>{notice}</span>{linkImportReport?.summary === notice && linkImportReport.failures.length > 0 && <details className="import-failures"><summary>Show failed URLs</summary><ul>{linkImportReport.failures.map((failure) => <li key={failure.url}><strong>{failure.url}</strong><span>{failure.error}</span></li>)}</ul></details>}</div><button aria-label="Dismiss notice" onClick={() => { setNotice(""); setLinkImportReport(null); }}>×</button></div>}
 
         {view === "sources" ? (
           <SourcesView sources={data.sources} loading={loading} automaticCount={automaticSourceCount} onRun={runCollection} onAdd={() => setMonitorOpen(true)} onReview={reviewSource} />
@@ -712,7 +755,7 @@ export function MarketDesk() {
       </main>
 
       {jobOpen && <JobModal initialValues={jobDraft} onClose={() => setJobOpen(false)} onSubmit={submitJob} saving={saving} />}
-      {linkImportOpen && <LinkImportModal onClose={() => setLinkImportOpen(false)} onSubmit={submitLinkImport} saving={saving} />}
+      {linkImportOpen && <LinkImportModal onClose={() => setLinkImportOpen(false)} onSubmit={submitLinkImport} saving={saving} progress={linkImportProgress} error={linkImportError} />}
       {monitorOpen && <MonitorModal onClose={() => setMonitorOpen(false)} onSubmit={submitMonitor} saving={saving} />}
       {dropboxOpen && <DropboxModal status={data.dropbox} onClose={() => setDropboxOpen(false)} onConfigure={configureDropbox} onSync={() => syncDropbox()} onDisconnect={disconnectDropboxConnection} busy={dropboxBusy} />}
       {aiOpen && <AIModal status={data.ai} onClose={() => setAiOpen(false)} onConfigure={configureAI} onDisconnect={disconnectAI} busy={aiBusy} />}
@@ -938,8 +981,9 @@ function JobModal({ initialValues, onClose, onSubmit, saving }: { initialValues:
     <label className="wide">Posting URL<input name="sourceUrl" type="url" placeholder="https://…" value={draft.sourceUrl} onChange={(event) => update("sourceUrl", event.target.value)} /></label><label>Job title<input name="title" required placeholder="Assistant Professor" value={draft.title} onChange={(event) => update("title", event.target.value)} /></label><label>Organization<input name="organization" required placeholder="University or firm" value={draft.organization} onChange={(event) => update("organization", event.target.value)} /></label><label>Sector<select name="sector" value={draft.sector} onChange={(event) => update("sector", event.target.value)}><option>Academic</option><option>Postdoc</option><option>Industry</option><option>Government</option></select></label><label>Source<select name="source" value={draft.source} onChange={(event) => update("source", event.target.value)}><option>JOE</option><option>EconJobMarket</option><option>AcademicJobsOnline</option><option>X</option><option>Employer website</option><option>Manual capture</option></select></label><label>Deadline<input name="deadline" type="date" value={draft.deadline} onChange={(event) => update("deadline", event.target.value)} /></label><label>Location<input name="location" placeholder="City, State or Remote" value={draft.location} onChange={(event) => update("location", event.target.value)} /></label><label>Salary / compensation<input name="salary" placeholder="$120,000–$145,000, if listed" value={draft.salary} onChange={(event) => update("salary", event.target.value)} /></label><label className="wide">Posting text or requirements<textarea name="postingText" rows={7} placeholder="Paste the listing or its application requirements. Market Desk will identify common documents." value={draft.postingText} onChange={(event) => update("postingText", event.target.value)} /></label><div className="form-help wide"><strong>Why this is manual</strong><span>You choose and copy one visible posting for your private tracker. Market Desk does not fetch, crawl, or sign in to the source website.</span></div><div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : "Save opportunity"}</button></div></form></ModalFrame>;
 }
 
-function LinkImportModal({ onClose, onSubmit, saving }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; saving: boolean }) {
-  return <ModalFrame title="Import a job from its link" subtitle="Market Desk will request this one public page, use AI to read its full description and requirements, save it, and open the finished workspace." onClose={onClose}><form className="modal-form link-import-form" onSubmit={onSubmit}><label className="wide">Original job-posting link<input name="url" type="url" required autoFocus placeholder="https://jobs.example.edu/posting/…" /></label><div className="form-help wide"><strong>Full-posting AI extraction</strong><span>Accepts any public HTTPS job-posting page that is readable without signing in, including university, government, nonprofit, consulting, technology, and other employer sites. The configured gpt-5-nano model extracts the employer, location, salary, deadline, full description, and every stated application material.</span></div><div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{saving ? "AI is reading and saving…" : "AI extract & save"}</button></div></form></ModalFrame>;
+function LinkImportModal({ onClose, onSubmit, saving, progress, error }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; saving: boolean; progress: LinkImportProgress | null; error: string }) {
+  const progressLabel = progress ? `Importing ${progress.current} of ${progress.total}…` : "AI extract & save";
+  return <ModalFrame title="Import jobs from links" subtitle="Paste one public job-posting URL per line. Market Desk will read and save each posting in order." onClose={saving ? () => undefined : onClose}><form className="modal-form link-import-form" onSubmit={onSubmit}><label className="wide">Job-posting links (one per line)<textarea name="urls" required autoFocus rows={7} disabled={saving} placeholder={"https://jobs.example.edu/posting/123\nhttps://jobs.example.edu/posting/456"} aria-describedby={error ? "link-import-error" : undefined} /></label>{error && <div className="form-error wide" id="link-import-error" role="alert">{error}</div>}<div className="form-help wide"><strong>Full-posting AI extraction</strong><span>Accepts any public HTTPS job-posting page that is readable without signing in. Imports up to 50 unique links sequentially; blank lines and repeated URLs are ignored. The configured gpt-5-nano model extracts the employer, location, salary, deadline, full description, and every stated application material.</span></div><div className="modal-actions"><button type="button" className="button secondary" onClick={onClose} disabled={saving}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{progressLabel}</button></div></form></ModalFrame>;
 }
 
 function MonitorModal({ onClose, onSubmit, saving }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; saving: boolean }) {
