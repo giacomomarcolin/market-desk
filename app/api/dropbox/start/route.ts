@@ -4,7 +4,9 @@ import { ensureMarketSchema } from "../../../../db/storage";
 export async function GET(request: Request) {
   try {
     await ensureMarketSchema();
-    return Response.redirect(await beginDropboxAuthorization(request.url), 302);
+    const callbackUrl = new URL(request.url).searchParams.get("callbackUrl");
+    if (!callbackUrl) throw new Error("A Dropbox callback URL is required.");
+    return Response.redirect(await beginDropboxAuthorization(callbackUrl), 302);
   } catch (error) {
     const target = new URL("/", request.url);
     target.searchParams.set("dropbox", "error");

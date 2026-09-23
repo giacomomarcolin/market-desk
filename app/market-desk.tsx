@@ -973,11 +973,11 @@ function DropboxModal({ status, onClose, onConfigure, onSync, onDisconnect, busy
         <div className="dropbox-actions"><button className="button primary" onClick={onSync} disabled={busy || !status.pendingFiles}>{busy ? "Syncing…" : "Sync existing files"}</button><button className="button secondary" onClick={onDisconnect} disabled={busy}>Disconnect</button></div>
       </> : <>
         <ol className="setup-steps">
-          <li><span>1</span><div><strong>Create a Dropbox API app</strong><p>Choose “Scoped access” and “Full Dropbox” access, then enable <code>files.metadata.read</code>, <code>files.content.read</code>, and <code>files.content.write</code>.</p><a href="https://www.dropbox.com/developers/apps/create" target="_blank" rel="noreferrer">Open Dropbox App Console ↗</a></div></li>
+          <li><span>1</span><div><strong>Create a Dropbox API app</strong><p>Choose “Scoped access” and “App folder” access, then enable <code>files.metadata.read</code>, <code>files.content.read</code>, and <code>files.content.write</code>.</p><a href="https://www.dropbox.com/developers/apps/create" target="_blank" rel="noreferrer">Open Dropbox App Console ↗</a></div></li>
           <li><span>2</span><div><strong>Add this redirect URI</strong><p>Paste it into the app’s OAuth 2 redirect URI list.</p><code className="callback-url">{callbackUrl}</code></div></li>
           <li><span>3</span><div><strong>Save the App key</strong><p>The App key is public; Market Desk never asks for or stores an App secret.</p><form className="dropbox-key-form" onSubmit={onConfigure}><input name="appKey" required placeholder="Dropbox App key" aria-label="Dropbox App key" /><button className="button secondary" disabled={busy}>{busy ? "Saving…" : status.appKeySaved ? "Replace key" : "Save key"}</button></form></div></li>
         </ol>
-        <div className="dropbox-connect-row"><div><strong>{status.appKeySaved ? "App key saved" : "Complete steps 1–3 first"}</strong><span>Dropbox will ask you to approve access once.</span></div>{status.appKeySaved && <a className="button primary connect-link" href="/api/dropbox/start">Authorize Dropbox</a>}</div>
+        <div className="dropbox-connect-row"><div><strong>{status.appKeySaved ? "App key saved" : "Complete steps 1–3 first"}</strong><span>Dropbox will ask you to approve access once.</span></div>{status.appKeySaved && <a className="button primary connect-link" href={`/api/dropbox/start?callbackUrl=${encodeURIComponent(callbackUrl)}`}>Authorize Dropbox</a>}</div>
       </>}
       <p className="dropbox-privacy">Market Desk requests only metadata read, content read, and content write access. Disconnecting does not delete files in Dropbox.</p>
     </div>

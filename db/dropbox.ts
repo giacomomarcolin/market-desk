@@ -110,14 +110,30 @@ export async function configureDropboxApp(appKey: string) {
   return getDropboxStatus();
 }
 
-export async function beginDropboxAuthorization(requestUrl: string) {
+export function validateDropboxCallbackUrl(callbackUrl: string) {
+  let callback: URL;
+  try {
+    callback = new URL(callbackUrl);
+  } catch {
+    throw new Error("A valid Dropbox callback URL is required.");
+  }
+  const localHost = callback.hostname === "localhost" || callback.hostname === "127.0.0.1";
+  const codespacesHost = callback.hostname.endsWith(".app.github.dev") && callback.hostname.length > ".app.github.dev".length;
+  if (callback.pathname !== "/api/dropbox/callback" || callback.username || callback.password || callback.search || callback.hash ||
+      !(codespacesHost && callback.protocol === "https:" || localHost && (callback.protocol === "http:" || callback.protocol === "https:"))) {
+    throw new Error("Dropbox callback URL must use the Market Desk callback on a GitHub Codespaces host or localhost.");
+  }
+  return callback.toString();
+}
+
+export async function beginDropboxAuthorization(callbackUrl: string) {
   const config = await getConfig();
   if (!config?.app_key) throw new Error("Save your Dropbox App key first.");
   if (!tokenSecret()) throw new Error("Secure Dropbox token storage is not configured yet.");
   const state = base64Url(crypto.getRandomValues(new Uint8Array(24)));
   const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
   const challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(verifier))));
-  const redirectUri = new URL("/api/dropbox/callback", requestUrl).toString();
+  const redirectUri = validateDropboxCallbackUrl(callbackUrl);
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   await db().batch([
     db().prepare("DELETE FROM dropbox_oauth_states WHERE expires_at < ?").bind(new Date().toISOString()),
@@ -133,6 +149,18 @@ export async function beginDropboxAuthorization(requestUrl: string) {
   authorize.searchParams.set("code_challenge_method", "S256");
   authorize.searchParams.set("scope", "files.metadata.read files.content.read files.content.write");
   return authorize.toString();
+}
+
+export async function getDropboxAuthorizationOrigin(state: string | null) {
+  if (!state) return null;
+  const savedState = await db().prepare("SELECT redirect_uri FROM dropbox_oauth_states WHERE state = ?")
+    .bind(state).first<{ redirect_uri: string }>();
+  if (!savedState) return null;
+  try {
+    return new URL(validateDropboxCallbackUrl(savedState.redirect_uri)).origin;
+  } catch {
+    return null;
+  }
 }
 
 export async function finishDropboxAuthorization(requestUrl: string) {
@@ -164,6 +192,7 @@ export async function finishDropboxAuthorization(requestUrl: string) {
   const timestamp = new Date().toISOString();
   await db().prepare(`UPDATE dropbox_config SET refresh_token_ciphertext=?,refresh_token_iv=?,account_id=?,connected_at=?,updated_at=? WHERE id=?`)
     .bind(encrypted.ciphertext, encrypted.iv, result.account_id || null, timestamp, timestamp, CONFIG_ID).run();
+  return { applicationOrigin: new URL(savedState.redirect_uri).origin };
 }
 
 async function accessToken() {

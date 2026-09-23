@@ -36,6 +36,35 @@ test("keeps Dropbox authorization server-side and protects the refresh token", a
   assert.doesNotMatch(dropbox, /return \{[^}]*access_token|refresh_token: result/);
 });
 
+test("validates and preserves the browser-visible Dropbox callback URL", async () => {
+  const [dropbox, startRoute, callbackRoute, marketDesk] = await Promise.all([
+    source("../db/dropbox.ts"),
+    source("../app/api/dropbox/start/route.ts"),
+    source("../app/api/dropbox/callback/route.ts"),
+    source("../app/market-desk.tsx"),
+  ]);
+  const validatorSource = dropbox.match(/export function validateDropboxCallbackUrl\(callbackUrl: string\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(validatorSource);
+  const executableValidator = validatorSource.replace(/^export /, "").replace("callbackUrl: string", "callbackUrl").replace(/: URL/g, "");
+  const validateDropboxCallbackUrl = new Function(`${executableValidator}; return validateDropboxCallbackUrl;`)();
+  const publicCallback = "https://didactic-train-rvgxw7945773xgrg-3000.app.github.dev/api/dropbox/callback";
+
+  assert.equal(validateDropboxCallbackUrl(publicCallback), publicCallback);
+  assert.throws(() => validateDropboxCallbackUrl("https://attacker.example/api/dropbox/callback"));
+  assert.throws(() => validateDropboxCallbackUrl("https://didactic-train-rvgxw7945773xgrg-3000.app.github.dev/other"));
+  assert.match(startRoute, /searchParams\.get\("callbackUrl"\)/);
+  assert.match(startRoute, /beginDropboxAuthorization\(callbackUrl\)/);
+  assert.match(marketDesk, /window\.location\.origin\}\/api\/dropbox\/callback/);
+  assert.match(marketDesk, /callbackUrl=\$\{encodeURIComponent\(callbackUrl\)\}/);
+  assert.match(dropbox, /searchParams\.set\("redirect_uri", redirectUri\)/);
+  assert.match(dropbox, /redirect_uri: savedState\.redirect_uri/);
+  assert.match(dropbox, /return \{ applicationOrigin: new URL\(savedState\.redirect_uri\)\.origin \}/);
+  assert.match(callbackRoute, /getDropboxAuthorizationOrigin\(callback\.searchParams\.get\("state"\)\)/);
+  assert.match(callbackRoute, /new URL\("\/", publicOrigin\)/);
+  assert.match(marketDesk, /“Scoped access” and “App folder” access/);
+  assert.doesNotMatch(marketDesk, /“Scoped access” and “Full Dropbox” access/);
+});
+
 test("uses deterministic safe application folder names and the JobMkt2026 application path", async () => {
   const dropbox = await source("../db/dropbox.ts");
   const folderFunction = dropbox.match(/export function applicationFolderName[\s\S]*?\n}/)?.[0];
