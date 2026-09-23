@@ -23,7 +23,7 @@ type Job = {
 };
 
 type JobRequirement = { id: string; label: string; completed: boolean; documentVersion: string | null };
-type JobFile = { id: string; label: string; filename: string; contentType: string; sizeBytes: number; uploadedAt: string; dropboxPath: string | null; dropboxStatus: "not_synced" | "syncing" | "synced" | "failed"; dropboxSyncedAt: string | null; dropboxError: string | null };
+type JobFile = { id: string; label: string; filename: string; contentType: string; sizeBytes: number; uploadedAt: string; dropboxPath: string | null; dropboxStatus: "not_synced" | "syncing" | "synced" | "failed"; dropboxSyncedAt: string | null; dropboxError: string | null; source?: "dropbox" | "market_desk"; modifiedAt?: string | null };
 type JobDetails = Job & {
   sourceSnapshot: string | null;
   notes: string | null;
@@ -270,7 +270,7 @@ export function MarketDesk() {
       const dropboxResult = params.get("dropbox");
       if (dropboxResult) {
         setDropboxOpen(true);
-        setNotice(dropboxResult === "connected" ? "Dropbox connected. You can now copy existing materials into your personal Dropbox." : params.get("message") || "Dropbox could not be connected.");
+        setNotice(dropboxResult === "connected" ? "Dropbox connected. Dropbox is now the source of truth for application materials." : params.get("message") || "Dropbox could not be connected.");
         window.history.replaceState({}, "", window.location.pathname);
       }
     }, 0);
@@ -443,7 +443,7 @@ export function MarketDesk() {
       if (!response.ok) throw new Error(body.error || "Upload failed");
       event.currentTarget.reset();
       await Promise.all([loadData(), refreshSelectedJob()]);
-      setNotice(body.dropboxStatus === "synced" ? "File added and copied to your personal Dropbox." : "File added to this job workspace.");
+      setNotice(body.dropboxStatus === "synced" ? "File added to Dropbox. Dropbox is the authoritative copy." : body.dropboxStatus === "failed" ? `The file remains in the Market Desk backup, but Dropbox upload failed: ${body.dropboxError || "please use Try sync."} Dropbox remains authoritative.` : "File added to this job workspace.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The file could not be uploaded.");
     } finally {
@@ -759,7 +759,7 @@ export function MarketDesk() {
       {monitorOpen && <MonitorModal onClose={() => setMonitorOpen(false)} onSubmit={submitMonitor} saving={saving} />}
       {dropboxOpen && <DropboxModal status={data.dropbox} onClose={() => setDropboxOpen(false)} onConfigure={configureDropbox} onSync={() => syncDropbox()} onDisconnect={disconnectDropboxConnection} busy={dropboxBusy} />}
       {aiOpen && <AIModal status={data.ai} onClose={() => setAiOpen(false)} onConfigure={configureAI} onDisconnect={disconnectAI} busy={aiBusy} />}
-      {selectedJob && <JobWorkspace job={selectedJob} dropboxConnected={data.dropbox.connected} onClose={() => setSelectedJob(null)} onMove={moveJob} onUpdate={updateJob} onToggleRequirement={toggleRequirement} onAddRequirement={addRequirement} onDelete={deleteSelectedJob} onUpload={uploadFile} onSyncFile={(fileId) => syncDropbox(fileId)} saving={saving || dropboxBusy} />}
+      {selectedJob && <JobWorkspace job={selectedJob} dropboxConnected={data.dropbox.connected} onClose={() => setSelectedJob(null)} onMove={moveJob} onUpdate={updateJob} onToggleRequirement={toggleRequirement} onAddRequirement={addRequirement} onDelete={deleteSelectedJob} onUpload={uploadFile} onSyncFile={(fileId) => syncDropbox(fileId)} onRefreshDropbox={refreshSelectedJob} saving={saving || dropboxBusy} />}
     </div>
   );
 }
@@ -797,7 +797,7 @@ function JobTable({ jobs, loading, onUpdate, onOpen }: { jobs: Job[]; loading: b
   );
 }
 
-function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onToggleRequirement, onAddRequirement, onDelete, onUpload, onSyncFile, saving }: {
+function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onToggleRequirement, onAddRequirement, onDelete, onUpload, onSyncFile, onRefreshDropbox, saving }: {
   job: JobDetails;
   dropboxConnected: boolean;
   onClose: () => void;
@@ -808,6 +808,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
   onDelete: (job: JobDetails) => void;
   onUpload: (event: FormEvent<HTMLFormElement>) => void;
   onSyncFile: (fileId: string) => void;
+  onRefreshDropbox: () => void;
   saving: boolean;
 }) {
   const [editingDetails, setEditingDetails] = useState(false);
@@ -875,10 +876,10 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
           </section>
 
           <section className="detail-section files-section">
-            <div className="detail-heading"><div><p className="eyebrow">JOB-SPECIFIC MATERIALS</p><h3>Prepared files</h3></div><span>{job.files.length} file{job.files.length === 1 ? "" : "s"}</span></div>
+            <div className="detail-heading"><div><p className="eyebrow">JOB-SPECIFIC MATERIALS</p><h3>Prepared files</h3></div><div className="file-heading-actions"><span>{job.files.length} file{job.files.length === 1 ? "" : "s"}</span>{dropboxConnected && <button type="button" className="button secondary" onClick={onRefreshDropbox} disabled={saving}>Refresh from Dropbox</button>}</div></div>
             <div className="files-list">
-              {job.files.map((file) => <article className="file-row" key={file.id}><a className="file-main" href={`/api/files?id=${encodeURIComponent(file.id)}`}><span className="file-icon">DOC</span><span><strong>{file.label}</strong><small>{file.filename} · {fileSize(file.sizeBytes)}</small></span><b>Download</b></a><div className="file-sync"><span className={`sync-state ${file.dropboxStatus}`} title={file.dropboxError || file.dropboxPath || ""}>{file.dropboxStatus === "synced" ? "Dropbox ✓" : file.dropboxStatus === "syncing" ? "Syncing…" : file.dropboxStatus === "failed" ? "Sync failed" : "Tracker only"}</span>{dropboxConnected && file.dropboxStatus !== "synced" && <button type="button" onClick={() => onSyncFile(file.id)} disabled={saving}>Try sync</button>}</div></article>)}
-              {!job.files.length && <div className="empty-files"><strong>No files attached yet</strong><span>Keep the tailored cover letter, statement, CV, and final submission documents with this job.</span></div>}
+              {job.files.map((file) => <article className="file-row" key={file.id}><a className="file-main" href={file.source === "dropbox" ? `/api/files?path=${encodeURIComponent(file.dropboxPath || "")}` : `/api/files?id=${encodeURIComponent(file.id)}`}><span className="file-icon">DOC</span><span><strong>{file.label}</strong><small>{file.filename} · {fileSize(file.sizeBytes)}{(file.modifiedAt || file.dropboxSyncedAt) ? ` · Modified ${new Date(file.modifiedAt || file.dropboxSyncedAt!).toLocaleString()}` : ""}{file.dropboxPath ? ` · ${file.dropboxPath}` : ""}</small></span><b>Open / download</b></a><div className="file-sync"><span className={`sync-state ${file.dropboxStatus}`} title={file.dropboxError || file.dropboxPath || ""}>{file.dropboxStatus === "synced" ? "Dropbox ✓" : file.dropboxStatus === "syncing" ? "Syncing…" : file.dropboxStatus === "failed" ? "Sync failed" : "Tracker only"}</span>{dropboxConnected && file.source !== "dropbox" && file.dropboxStatus !== "synced" && <button type="button" onClick={() => onSyncFile(file.id)} disabled={saving}>Try sync</button>}</div></article>)}
+              {!job.files.length && <div className="empty-files"><strong>No files in this Dropbox application folder yet</strong><span>Files saved directly to Dropbox will appear here after refresh.</span></div>}
             </div>
             <form className="file-upload" onSubmit={onUpload}>
               <label><span>Document label</span><input name="label" placeholder="e.g. Tailored cover letter" /></label>
@@ -963,22 +964,22 @@ function DropboxModal({ status, onClose, onConfigure, onSync, onDisconnect, busy
   busy: boolean;
 }) {
   const callbackUrl = typeof window === "undefined" ? "" : `${window.location.origin}/api/dropbox/callback`;
-  return <ModalFrame title="Personal Dropbox" subtitle="Keep a second copy of every job-specific material in your own Dropbox App folder." onClose={onClose}>
+  return <ModalFrame title="Personal Dropbox" subtitle="Use Dropbox as the source of truth for job-specific application materials." onClose={onClose}>
     <div className="dropbox-setup">
       {status.connected ? <>
-        <div className="dropbox-connected-card"><span className="dropbox-check">✓</span><div><strong>Dropbox is connected</strong><p>New uploads are copied automatically into folders organized by job.</p></div></div>
+        <div className="dropbox-connected-card"><span className="dropbox-check">✓</span><div><strong>Dropbox is connected</strong><p>Application materials in Dropbox are authoritative. New uploads go into folders organized by job.</p></div></div>
         <div className="dropbox-stats"><div><strong>{status.syncedFiles}</strong><span>Synced</span></div><div><strong>{status.pendingFiles}</strong><span>Waiting</span></div><div><strong>{status.failedFiles}</strong><span>Need retry</span></div></div>
-        <div className="dropbox-path"><span>Dropbox location</span><strong>Apps / your Dropbox app / Market Desk</strong></div>
+        <div className="dropbox-path"><span>Dropbox location</span><strong>/JobMkt2026/applications/</strong></div>
         <div className="dropbox-actions"><button className="button primary" onClick={onSync} disabled={busy || !status.pendingFiles}>{busy ? "Syncing…" : "Sync existing files"}</button><button className="button secondary" onClick={onDisconnect} disabled={busy}>Disconnect</button></div>
       </> : <>
         <ol className="setup-steps">
-          <li><span>1</span><div><strong>Create a Dropbox API app</strong><p>Choose “Scoped access” and “App folder,” then enable <code>files.content.write</code>.</p><a href="https://www.dropbox.com/developers/apps/create" target="_blank" rel="noreferrer">Open Dropbox App Console ↗</a></div></li>
+          <li><span>1</span><div><strong>Create a Dropbox API app</strong><p>Choose “Scoped access” and “Full Dropbox” access, then enable <code>files.metadata.read</code>, <code>files.content.read</code>, and <code>files.content.write</code>.</p><a href="https://www.dropbox.com/developers/apps/create" target="_blank" rel="noreferrer">Open Dropbox App Console ↗</a></div></li>
           <li><span>2</span><div><strong>Add this redirect URI</strong><p>Paste it into the app’s OAuth 2 redirect URI list.</p><code className="callback-url">{callbackUrl}</code></div></li>
           <li><span>3</span><div><strong>Save the App key</strong><p>The App key is public; Market Desk never asks for or stores an App secret.</p><form className="dropbox-key-form" onSubmit={onConfigure}><input name="appKey" required placeholder="Dropbox App key" aria-label="Dropbox App key" /><button className="button secondary" disabled={busy}>{busy ? "Saving…" : status.appKeySaved ? "Replace key" : "Save key"}</button></form></div></li>
         </ol>
         <div className="dropbox-connect-row"><div><strong>{status.appKeySaved ? "App key saved" : "Complete steps 1–3 first"}</strong><span>Dropbox will ask you to approve access once.</span></div>{status.appKeySaved && <a className="button primary connect-link" href="/api/dropbox/start">Authorize Dropbox</a>}</div>
       </>}
-      <p className="dropbox-privacy">Market Desk can write only inside its Dropbox App folder. Disconnecting does not delete files already copied there.</p>
+      <p className="dropbox-privacy">Market Desk requests only metadata read, content read, and content write access. Disconnecting does not delete files in Dropbox.</p>
     </div>
   </ModalFrame>;
 }

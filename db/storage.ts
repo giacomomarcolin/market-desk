@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getDropboxStatus, uploadJobFileToDropbox } from "./dropbox";
+import { downloadApplicationFile, getDropboxStatus, listApplicationFiles, uploadJobFileToDropbox } from "./dropbox";
 import { getAIStatus } from "./ai";
 import { trimmedField, validManualDeadline, validManualSector, validManualSourceUrl } from "./job-fields.js";
 
@@ -264,17 +264,23 @@ export async function getJobDetails(jobId: string) {
   const job = await d1.prepare(`SELECT j.*, SUM(CASE WHEN r.completed = 1 THEN 1 ELSE 0 END) AS requirements_done, COUNT(r.id) AS requirements_total
     FROM jobs j LEFT JOIN job_requirements r ON r.job_id = j.id WHERE j.id = ? GROUP BY j.id`).bind(jobId).first<D1Row>();
   if (!job) throw new Error("Job not found.");
-  const [requirements, files] = await Promise.all([
+  const [requirements, files, dropboxStatus] = await Promise.all([
     d1.prepare("SELECT id,label,completed,document_version FROM job_requirements WHERE job_id = ? ORDER BY sort_order,label").bind(jobId).all<D1Row>(),
     d1.prepare("SELECT id,label,filename,content_type,size_bytes,uploaded_at,dropbox_path,dropbox_status,dropbox_synced_at,dropbox_error FROM job_files WHERE job_id = ? ORDER BY uploaded_at DESC").bind(jobId).all<D1Row>(),
+    getDropboxStatus(),
   ]);
+  const localFiles = files.results.map((row) => ({ id: String(row.id), label: String(row.label), filename: String(row.filename), contentType: String(row.content_type), sizeBytes: Number(row.size_bytes), uploadedAt: String(row.uploaded_at), dropboxPath: row.dropbox_path as string | null, dropboxStatus: row.dropbox_status || "not_synced", dropboxSyncedAt: row.dropbox_synced_at, dropboxError: row.dropbox_error, source: "market_desk" }));
+  const dropboxFiles = dropboxStatus.connected ? await listApplicationFiles(String(job.organization), String(job.title)) : [];
+  const filesByPath = new Map(dropboxFiles.map((file) => [file.path.toLowerCase(), file]));
+  const localWithDropbox = localFiles.filter((file) => !file.dropboxPath || !filesByPath.has(file.dropboxPath.toLowerCase()));
+  const preparedFiles = [...localWithDropbox, ...dropboxFiles.map((file) => ({ id: file.id, label: file.name, filename: file.name, contentType: "application/octet-stream", sizeBytes: file.sizeBytes || 0, uploadedAt: file.modifiedAt || "", dropboxPath: file.path, dropboxStatus: "synced", dropboxSyncedAt: file.modifiedAt, dropboxError: null, source: "dropbox", modifiedAt: file.modifiedAt }))];
   return {
     ...mapJob(job),
     sourceSnapshot: job.source_snapshot,
     notes: job.notes,
     capturedAt: job.captured_at,
     requirements: requirements.results.map((row) => ({ id: row.id, label: row.label, completed: bool(row.completed), documentVersion: row.document_version })),
-    files: files.results.map((row) => ({ id: row.id, label: row.label, filename: row.filename, contentType: row.content_type, sizeBytes: Number(row.size_bytes), uploadedAt: row.uploaded_at, dropboxPath: row.dropbox_path, dropboxStatus: row.dropbox_status || "not_synced", dropboxSyncedAt: row.dropbox_synced_at, dropboxError: row.dropbox_error })),
+    files: preparedFiles,
   };
 }
 
@@ -433,7 +439,7 @@ export async function saveJobFile(jobId: string, file: File, label?: string) {
   await db().prepare("INSERT INTO job_files (id,job_id,label,filename,object_key,content_type,size_bytes,uploaded_at) VALUES (?,?,?,?,?,?,?,?)")
     .bind(fileId, jobId, label?.trim() || file.name, file.name, objectKey, contentType, file.size, now()).run();
   const dropbox = await uploadJobFileToDropbox({ fileId, organization: job.organization, title: job.title, label: label?.trim() || file.name, filename: file.name, bytes });
-  return { id: fileId, dropboxStatus: dropbox.status };
+  return { id: fileId, dropboxStatus: dropbox.status, dropboxError: "error" in dropbox ? dropbox.error : null };
 }
 
 export async function syncJobFileToDropbox(fileId: string) {
@@ -470,9 +476,19 @@ export async function getJobFile(fileId: string) {
   await ensureMarketSchema();
   const metadata = await db().prepare("SELECT id,filename,object_key,content_type,size_bytes FROM job_files WHERE id = ?").bind(fileId).first<D1Row>();
   if (!metadata) throw new Error("File not found.");
+  const connected = (await getDropboxStatus()).connected;
+  const dropboxPath = metadata.dropbox_path;
+  if (connected && typeof dropboxPath === "string" && dropboxPath.startsWith("/JobMkt2026/applications/")) {
+    return { metadata, dropbox: await downloadApplicationFile(dropboxPath) };
+  }
   const object = await filesBucket().get(String(metadata.object_key));
   if (!object) throw new Error("Stored file not found.");
   return { metadata, object };
+}
+
+export async function getDropboxFile(path: string) {
+  await ensureMarketSchema();
+  return downloadApplicationFile(path);
 }
 
 export async function createSourceMonitor(input: { name?: string; category?: string; method?: string; url?: string; cadenceHours?: string | number }) {

@@ -31,7 +31,47 @@ test("keeps Dropbox authorization server-side and protects the refresh token", a
   assert.match(dropbox, /AES-GCM/);
   assert.match(dropbox, /DROPBOX_TOKEN_KEY/);
   assert.match(dropbox, /refresh_token_ciphertext/);
+  assert.match(dropbox, /files\.metadata\.read files\.content\.read files\.content\.write/);
   assert.doesNotMatch(dropbox, /DROPBOX_APP_SECRET|client_secret/);
+  assert.doesNotMatch(dropbox, /return \{[^}]*access_token|refresh_token: result/);
+});
+
+test("uses deterministic safe application folder names and the JobMkt2026 application path", async () => {
+  const dropbox = await source("../db/dropbox.ts");
+  const folderFunction = dropbox.match(/export function applicationFolderName[\s\S]*?\n}/)?.[0];
+  assert.ok(folderFunction);
+  const executableFolderFunction = folderFunction.replace(/^export /, "").replaceAll(": string", "");
+  const applicationFolderName = new Function(`${executableFolderFunction}; return applicationFolderName;`)();
+  assert.equal(applicationFolderName("Stanford Graduate School of Business", "Faculty Positions in Political Economy"), "stanford_graduate_school_of_business_faculty_positions_in_political_economy");
+  assert.match(dropbox, /export function applicationFolderName/);
+  assert.match(dropbox, /toLowerCase\(\)/);
+  assert.match(dropbox, /replace\(\/\[\^a-z0-9\]\+\/g, "_"\)/);
+  assert.match(dropbox, /replace\(\/_\+\/g, "_"\)/);
+  assert.match(dropbox, /\/JobMkt2026\/applications\/\$\{applicationFolderName/);
+  assert.match(dropbox, /mode: "add", autorename: true/);
+});
+
+test("lists Dropbox files, treats missing folders as empty, and follows pagination", async () => {
+  const dropbox = await source("../db/dropbox.ts");
+  assert.match(dropbox, /files\/list_folder"/);
+  assert.match(dropbox, /files\/list_folder\/continue/);
+  assert.match(dropbox, /if \(!result\.has_more \|\| !result\.cursor\) break/);
+  assert.match(dropbox, /if \(dropboxError\(response, responseBody\)\) return \[\]/);
+  assert.match(dropbox, /server_modified/);
+  assert.match(dropbox, /sizeBytes:/);
+});
+
+test("merges direct Dropbox files into prepared files and serves Dropbox content server-side", async () => {
+  const [storage, route, workspace] = await Promise.all([
+    source("../db/storage.ts"), source("../app/api/files/route.ts"), source("../app/market-desk.tsx"),
+  ]);
+  assert.match(storage, /listApplicationFiles/);
+  assert.match(storage, /dropboxStatus\.connected \? await listApplicationFiles/);
+  assert.match(storage, /downloadApplicationFile\(dropboxPath\)/);
+  assert.match(route, /getDropboxFile\(path\)/);
+  assert.match(workspace, /Refresh from Dropbox/);
+  assert.match(workspace, /\?path=\$\{encodeURIComponent\(file\.dropboxPath/);
+  assert.match(workspace, /Modified \$\{new Date/);
 });
 
 test("uses the fixed lowest-cost AI extraction model with structured output", async () => {

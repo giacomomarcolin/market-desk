@@ -17,6 +17,14 @@ type UploadInput = {
   bytes: ArrayBuffer;
 };
 
+export type DropboxFile = {
+  id: string;
+  name: string;
+  path: string;
+  modifiedAt: string | null;
+  sizeBytes: number | null;
+};
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const CONFIG_ID = "personal";
@@ -123,7 +131,7 @@ export async function beginDropboxAuthorization(requestUrl: string) {
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", challenge);
   authorize.searchParams.set("code_challenge_method", "S256");
-  authorize.searchParams.set("scope", "files.content.write");
+  authorize.searchParams.set("scope", "files.metadata.read files.content.read files.content.write");
   return authorize.toString();
 }
 
@@ -173,32 +181,62 @@ async function accessToken() {
   return result.access_token;
 }
 
-function safeSegment(value: string, fallback: string) {
-  const cleaned = value.replace(/[\\/\u0000-\u001f]/g, "-").replace(/\s+/g, " ").replace(/[. ]+$/g, "").trim();
-  return (cleaned || fallback).slice(0, 120);
+export function applicationFolderName(organization: string, title: string) {
+  const normalize = (value: string) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  const org = normalize(organization) || "application";
+  const role = normalize(title) || "position";
+  const limit = 96;
+  const full = `${org}_${role}`;
+  if (full.length <= limit) return full;
+  const orgPart = org.slice(0, 48).replace(/_+$/g, "");
+  const rolePart = role.slice(0, limit - orgPart.length - 1).replace(/_+$/g, "");
+  return `${orgPart}_${rolePart}`.slice(0, limit).replace(/_+$/g, "");
 }
 
-function uploadPath(input: UploadInput) {
-  const jobFolder = safeSegment(`${input.organization} — ${input.title}`, "Job materials");
-  const shortId = input.fileId.replace(/^file_/, "").slice(0, 8);
-  const filename = safeSegment(input.filename, "document");
-  const label = safeSegment(input.label, "Material");
-  return `/Market Desk/${jobFolder}/${label} — ${shortId} — ${filename}`;
+function safeFilename(value: string) {
+  return value.replace(/[\\/\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim().slice(-180) || "document";
+}
+
+export function applicationFolderPath(organization: string, title: string) {
+  return `/JobMkt2026/applications/${applicationFolderName(organization, title)}`;
+}
+
+async function ensureFolder(path: string, token: string) {
+  const response = await fetch("https://api.dropboxapi.com/2/files/create_folder_v2", {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ path, autorename: false }),
+  });
+  if (response.ok) return;
+  const body = await response.text();
+  if (response.status === 409 && body.includes("path/conflict")) return;
+  throw new Error(`Dropbox folder setup failed (${response.status}).`);
+}
+
+async function ensureApplicationFolder(path: string, token: string) {
+  await ensureFolder("/JobMkt2026", token);
+  await ensureFolder("/JobMkt2026/applications", token);
+  await ensureFolder(path, token);
+}
+
+function dropboxError(response: Response, body: string) {
+  return response.status === 409 && body.includes("path/not_found");
 }
 
 export async function uploadJobFileToDropbox(input: UploadInput) {
   const config = await getConfig();
   if (!config?.refresh_token_ciphertext || !config.refresh_token_iv) return { status: "not_synced" as const, path: null };
-  const path = uploadPath(input);
+  const path = `${applicationFolderPath(input.organization, input.title)}/${safeFilename(input.filename)}`;
   await db().prepare("UPDATE job_files SET dropbox_status='syncing',dropbox_path=?,dropbox_error=NULL WHERE id=?").bind(path, input.fileId).run();
   try {
     const token = await accessToken();
+    await ensureApplicationFolder(applicationFolderPath(input.organization, input.title), token);
     const response = await fetch("https://content.dropboxapi.com/2/files/upload", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/octet-stream",
-        "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true, strict_conflict: false }),
+        "Dropbox-API-Arg": JSON.stringify({ path, mode: "add", autorename: true, mute: true, strict_conflict: false }),
       },
       body: input.bytes,
     });
@@ -206,14 +244,51 @@ export async function uploadJobFileToDropbox(input: UploadInput) {
       const message = (await response.text()).slice(0, 500);
       throw new Error(`Dropbox upload failed (${response.status})${message ? `: ${message}` : ""}`);
     }
+    const uploaded = await response.json() as { path_display?: string };
+    const actualPath = uploaded.path_display || path;
     const syncedAt = new Date().toISOString();
-    await db().prepare("UPDATE job_files SET dropbox_status='synced',dropbox_synced_at=?,dropbox_error=NULL WHERE id=?").bind(syncedAt, input.fileId).run();
-    return { status: "synced" as const, path };
+    await db().prepare("UPDATE job_files SET dropbox_status='synced',dropbox_path=?,dropbox_synced_at=?,dropbox_error=NULL WHERE id=?").bind(actualPath, syncedAt, input.fileId).run();
+    return { status: "synced" as const, path: actualPath, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Dropbox sync failed";
     await db().prepare("UPDATE job_files SET dropbox_status='failed',dropbox_error=? WHERE id=?").bind(message, input.fileId).run();
-    return { status: "failed" as const, path };
+    return { status: "failed" as const, path, error: message };
   }
+}
+
+export async function listApplicationFiles(organization: string, title: string): Promise<DropboxFile[]> {
+  const token = await accessToken();
+  const folder = applicationFolderPath(organization, title);
+  let endpoint = "https://api.dropboxapi.com/2/files/list_folder";
+  let body: Record<string, unknown> = { path: folder, recursive: false, include_deleted: false };
+  const files: DropboxFile[] = [];
+  while (true) {
+    const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const responseBody = await response.text();
+    if (!response.ok) {
+      if (dropboxError(response, responseBody)) return [];
+      throw new Error(`Dropbox listing failed (${response.status}).`);
+    }
+    const result = JSON.parse(responseBody) as { entries?: Array<Record<string, unknown>>; has_more?: boolean; cursor?: string };
+    for (const entry of result.entries || []) {
+      if (entry[".tag"] !== "file") continue;
+      files.push({ id: `dropbox:${String(entry.id || entry.path_lower || entry.path_display)}`, name: String(entry.name || "File"), path: String(entry.path_display || entry.path_lower || ""), modifiedAt: typeof entry.server_modified === "string" ? entry.server_modified : null, sizeBytes: typeof entry.size === "number" ? entry.size : null });
+    }
+    if (!result.has_more || !result.cursor) break;
+    endpoint = "https://api.dropboxapi.com/2/files/list_folder/continue";
+    body = { cursor: result.cursor };
+  }
+  return files.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function downloadApplicationFile(path: string) {
+  if (!path.startsWith("/JobMkt2026/applications/") || path.includes("..")) throw new Error("Invalid Dropbox file path.");
+  const token = await accessToken();
+  const response = await fetch("https://content.dropboxapi.com/2/files/download", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Dropbox-API-Arg": JSON.stringify({ path }) } });
+  if (!response.ok) throw new Error(`Dropbox download failed (${response.status}).`);
+  const metadata = response.headers.get("Dropbox-API-Result");
+  const info = metadata ? JSON.parse(metadata) as { name?: string; size?: number } : {};
+  return { body: response.body, filename: info.name || path.split("/").pop() || "document", sizeBytes: info.size, contentType: response.headers.get("Content-Type") || "application/octet-stream" };
 }
 
 export async function disconnectDropbox() {

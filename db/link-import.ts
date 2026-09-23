@@ -1,4 +1,5 @@
 import { extractJobWithAI } from "./ai";
+import { extractVisibleDeadline, resolveDeadline } from "./deadline.js";
 
 type ImportedJob = {
   sourceUrl: string;
@@ -148,13 +149,13 @@ function extractStructuredJobText(html: string) {
       }
       const posting = findJobPosting(parsed);
       if (!posting) continue;
+      const structuredDeadline = normalizedDate(posting.validThrough);
       const fields: Array<[string, unknown]> = [
         ["Job title", posting.title],
         ["Hiring organization", posting.hiringOrganization],
         ["Location", posting.jobLocation || posting.applicantLocationRequirements],
         ["Remote work", posting.jobLocationType],
         ["Date posted", posting.datePosted],
-        ["Application deadline", posting.validThrough],
         ["Employment type", posting.employmentType],
         ["Salary", posting.baseSalary],
         ["Description", posting.description],
@@ -164,15 +165,18 @@ function extractStructuredJobText(html: string) {
         ["Experience requirements", posting.experienceRequirements],
         ["Skills", posting.skills],
       ];
-      return fields.map(([label, value]) => {
-        const readable = readableValue(value);
-        return readable ? `${label}\n${readable}` : "";
-      }).filter(Boolean).join("\n\n");
+      return {
+        text: fields.map(([label, value]) => {
+          const readable = readableValue(value);
+          return readable ? `${label}\n${readable}` : "";
+        }).filter(Boolean).join("\n\n"),
+        deadline: structuredDeadline,
+      };
     } catch {
       // Ignore malformed structured data and continue with the visible page text.
     }
   }
-  return "";
+  return { text: "", deadline: "" };
 }
 
 function interfolioField(label: string, value: unknown) {
@@ -289,6 +293,8 @@ export async function importJobFromLink(rawUrl: string): Promise<ImportedJob> {
   let source = sourceName(url.hostname);
   let html = "";
   let postingText = "";
+  let structuredDeadline = "";
+  let visibleDeadline = "";
   let directFields: DirectJobFields | null = null;
   if (source === "X") {
     html = await fetchXPost(url);
@@ -302,9 +308,11 @@ export async function importJobFromLink(rawUrl: string): Promise<ImportedJob> {
     source = sourceName(url.hostname);
   }
   if (!postingText) {
-    const structuredText = extractStructuredJobText(html);
     const visibleText = cleanText(html);
-    postingText = [structuredText, visibleText].filter(Boolean).join("\n\n").slice(0, 200_000);
+    const structured = extractStructuredJobText(html);
+    structuredDeadline = structured.deadline;
+    visibleDeadline = extractVisibleDeadline(visibleText);
+    postingText = [structured.text, visibleText].filter(Boolean).join("\n\n").slice(0, 200_000);
   }
   if (postingText.length < 30) throw new Error("The public page did not contain enough readable information. Use copied-text import for this listing.");
   const extracted = await extractJobWithAI({ source, sourceUrl: url.href, postingText });
@@ -314,7 +322,7 @@ export async function importJobFromLink(rawUrl: string): Promise<ImportedJob> {
     organization: extracted.organization,
     sector: extracted.sector,
     source,
-    deadline: directFields?.deadline || extracted.deadline || "",
+    deadline: directFields?.deadline || resolveDeadline(visibleDeadline, structuredDeadline, extracted.deadline),
     location: directFields?.location || extracted.location || "",
     salary: directFields?.salary || extracted.salary || "",
     postingText,
