@@ -810,6 +810,24 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
   onSyncFile: (fileId: string) => void;
   saving: boolean;
 }) {
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsSaving, setDetailsSaving] = useState(false);
+
+  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDetailsSaving(true);
+    setDetailsError("");
+    const form = new FormData(event.currentTarget);
+    const saved = await onUpdate(job.id, {
+      title: form.get("title"), organization: form.get("organization"), sector: form.get("sector"),
+      deadline: form.get("deadline"), location: form.get("location"), salary: form.get("salary"), sourceUrl: form.get("sourceUrl"),
+    });
+    setDetailsSaving(false);
+    if (saved) setEditingDetails(false);
+    else setDetailsError("Could not save these details. Please review them and try again.");
+  }
+
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="job-drawer" role="dialog" aria-modal="true" aria-labelledby="job-workspace-title">
@@ -819,6 +837,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
         </header>
 
         <div className="drawer-actions">
+          <button className="button secondary" onClick={() => setEditingDetails((value) => !value)}>{editingDetails ? "Close edit" : "Edit details"}</button>
           {job.sourceUrl ? <a className="button primary" href={job.sourceUrl} target="_blank" rel="noreferrer">Open original posting ↗</a> : <span className="missing-link">No posting link was captured</span>}
           <label><span>Application status</span><select value={job.status} onChange={(event) => onUpdate(job.id, { status: event.target.value })}>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label>
           <div className="fit-actions">
@@ -830,6 +849,20 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
         </div>
 
         <div className="drawer-content">
+          {editingDetails && <form className="edit-job-details" onSubmit={saveDetails}>
+            <div className="detail-heading"><div><p className="eyebrow">MANUAL CORRECTION</p><h3>Edit job details</h3></div></div>
+            <div className="edit-job-grid">
+              <label>Position title<input name="title" required maxLength={240} defaultValue={job.title} /></label>
+              <label>Institution / Company<input name="organization" required maxLength={240} defaultValue={job.organization} /></label>
+              <label>Sector<select name="sector" defaultValue={job.sector}><option>Academic</option><option>Postdoc</option><option>Industry</option><option>Government</option></select></label>
+              <label>Deadline<input name="deadline" type="date" defaultValue={job.deadline || ""} /></label>
+              <label>Location<input name="location" maxLength={240} defaultValue={job.location || ""} /></label>
+              <label>Salary / compensation<input name="salary" maxLength={240} defaultValue={job.salary || ""} /></label>
+              <label className="wide">Posting URL<input name="sourceUrl" type="url" maxLength={2048} defaultValue={job.sourceUrl || ""} /></label>
+            </div>
+            {detailsError && <p className="edit-details-error" role="alert">{detailsError}</p>}
+            <div className="edit-details-actions"><button type="button" className="button secondary" onClick={() => { setEditingDetails(false); setDetailsError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={detailsSaving}>{detailsSaving ? "Saving…" : "Save changes"}</button></div>
+          </form>}
           <JobNoteEditor job={job} onSave={onUpdate} />
 
           <section className="detail-section">

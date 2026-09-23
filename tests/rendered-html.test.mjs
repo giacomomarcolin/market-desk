@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { extractVisibleDeadline, resolveDeadline } from "../db/deadline.js";
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), "utf8");
@@ -150,6 +151,35 @@ test("uses JobPosting structured data when visible page text is incomplete", asy
   assert.match(linkImport, /posting\.hiringOrganization/);
   assert.match(linkImport, /posting\.validThrough/);
   assert.match(linkImport, /posting\.baseSalary/);
+});
+
+test("prefers an explicit visible closing date over conflicting JobPosting metadata", () => {
+  const html = `<script type="application/ld+json">{"@type":"JobPosting","validThrough":"2026-10-15"}</script>
+    <main><h1>Lecturer / Assistant Professor</h1><p>Closing Date: 20 November 2026</p></main>`;
+  const structured = JSON.parse(html.match(/<script[^>]*>(.*?)<\/script>/s)[1]).validThrough;
+  const visible = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, " ");
+
+  assert.equal(resolveDeadline(extractVisibleDeadline(visible), structured, "2026-12-01"), "2026-11-20");
+});
+
+test("uses structured validThrough when there is no explicit visible deadline", () => {
+  assert.equal(resolveDeadline(extractVisibleDeadline("Posted 1 October 2026"), "2026-10-15", null), "2026-10-15");
+});
+
+test("uses a visible deadline when structured metadata is absent", () => {
+  assert.equal(resolveDeadline(extractVisibleDeadline("Application deadline: November 20, 2026"), "", null), "2026-11-20");
+});
+
+test("does not use unrelated visible dates as application deadlines", () => {
+  const visible = "Date posted: 1 October 2026\nStart date: 1 January 2027\nInterview date: 5 December 2026";
+  assert.equal(extractVisibleDeadline(visible), "");
+  assert.equal(resolveDeadline(extractVisibleDeadline(visible), "", null), "");
+});
+
+test("accepts matching visible and structured deadlines and rejects ambiguous numeric dates", () => {
+  assert.equal(resolveDeadline(extractVisibleDeadline("Applications close: 11/20/2026"), "2026-11-20", null), "2026-11-20");
+  assert.equal(extractVisibleDeadline("Deadline: 10/11/2026"), "");
+  assert.equal(extractVisibleDeadline("Apply by: 2026-11-20"), "2026-11-20");
 });
 
 test("sorts and displays deadlines as real dates", async () => {

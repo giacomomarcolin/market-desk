@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getDropboxStatus, uploadJobFileToDropbox } from "./dropbox";
 import { getAIStatus } from "./ai";
+import { trimmedField, validManualDeadline, validManualSector, validManualSourceUrl } from "./job-fields.js";
 
 type D1Row = Record<string, unknown>;
 type CreateJobInput = {
@@ -336,7 +337,17 @@ export async function createJob(input: CreateJobInput, collectionMode = "manual"
   return { id: jobId };
 }
 
-export async function updateJob(input: { id?: string; status?: string; starred?: boolean; bucket?: string; notes?: string }) {
+type ManualJobFields = {
+  title?: string;
+  organization?: string;
+  sector?: string;
+  deadline?: string | null;
+  location?: string | null;
+  salary?: string | null;
+  sourceUrl?: string | null;
+};
+
+export async function updateJob(input: { id?: string; status?: string; starred?: boolean; bucket?: string; notes?: string } & ManualJobFields) {
   await ensureMarketSchema();
   if (!input.id) throw new Error("Job id is required.");
   const fields: string[] = [];
@@ -345,6 +356,15 @@ export async function updateJob(input: { id?: string; status?: string; starred?:
   if (input.bucket && ["active", "maybe", "skipped"].includes(input.bucket)) { fields.push("bucket = ?"); values.push(input.bucket); }
   if (typeof input.starred === "boolean") { fields.push("starred = ?"); values.push(input.starred ? 1 : 0); }
   if (typeof input.notes === "string") { fields.push("notes = ?"); values.push(input.notes.slice(0, 5000) || null); }
+  if (input.title !== undefined) { fields.push("title = ?"); values.push(trimmedField(input.title, "Title", 240, true)); }
+  if (input.organization !== undefined) { fields.push("organization = ?"); values.push(trimmedField(input.organization, "Institution / Company", 240, true)); }
+  if (input.sector !== undefined) {
+    fields.push("sector = ?"); values.push(validManualSector(input.sector));
+  }
+  if (input.deadline !== undefined) { fields.push("deadline = ?"); values.push(validManualDeadline(input.deadline)); }
+  if (input.location !== undefined) { fields.push("location = ?"); values.push(trimmedField(input.location, "Location", 240)); }
+  if (input.salary !== undefined) { fields.push("salary = ?"); values.push(trimmedField(input.salary, "Salary / compensation", 240)); }
+  if (input.sourceUrl !== undefined) { fields.push("source_url = ?"); values.push(validManualSourceUrl(input.sourceUrl)); }
   if (!fields.length) return;
   fields.push("updated_at = ?"); values.push(now(), input.id);
   await db().prepare(`UPDATE jobs SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
