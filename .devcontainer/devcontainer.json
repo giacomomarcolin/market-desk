@@ -7,7 +7,7 @@
   "portsAttributes": {
     "3000": {
       "label": "Market Desk",
-      "onAutoForward": "openPreview",
+      "onAutoForward": "openBrowser",
       "visibility": "private"
     }
   }
