@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { validDropboxFolderName } from "./job-fields.js";
 
 type DropboxConfigRow = {
   app_key: string;
@@ -12,6 +13,7 @@ type UploadInput = {
   fileId: string;
   organization: string;
   title: string;
+  dropboxFolderName?: string | null;
   label: string;
   filename: string;
   bytes: ArrayBuffer;
@@ -227,8 +229,8 @@ function safeFilename(value: string) {
   return value.replace(/[\\/\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim().slice(-180) || "document";
 }
 
-export function applicationFolderPath(organization: string, title: string) {
-  return `/JobMkt2026/applications/${applicationFolderName(organization, title)}`;
+export function applicationFolderPath(organization: string, title: string, dropboxFolderName?: string | null) {
+  return `/JobMkt2026/applications/${validDropboxFolderName(dropboxFolderName ?? null) || applicationFolderName(organization, title)}`;
 }
 
 async function ensureFolder(path: string, token: string) {
@@ -255,11 +257,12 @@ function dropboxError(response: Response, body: string) {
 export async function uploadJobFileToDropbox(input: UploadInput) {
   const config = await getConfig();
   if (!config?.refresh_token_ciphertext || !config.refresh_token_iv) return { status: "not_synced" as const, path: null };
-  const path = `${applicationFolderPath(input.organization, input.title)}/${safeFilename(input.filename)}`;
+  const folder = applicationFolderPath(input.organization, input.title, input.dropboxFolderName);
+  const path = `${folder}/${safeFilename(input.filename)}`;
   await db().prepare("UPDATE job_files SET dropbox_status='syncing',dropbox_path=?,dropbox_error=NULL WHERE id=?").bind(path, input.fileId).run();
   try {
     const token = await accessToken();
-    await ensureApplicationFolder(applicationFolderPath(input.organization, input.title), token);
+    await ensureApplicationFolder(folder, token);
     const response = await fetch("https://content.dropboxapi.com/2/files/upload", {
       method: "POST",
       headers: {
@@ -285,9 +288,9 @@ export async function uploadJobFileToDropbox(input: UploadInput) {
   }
 }
 
-export async function listApplicationFiles(organization: string, title: string): Promise<DropboxFile[]> {
+export async function listApplicationFiles(organization: string, title: string, dropboxFolderName?: string | null): Promise<DropboxFile[]> {
   const token = await accessToken();
-  const folder = applicationFolderPath(organization, title);
+  const folder = applicationFolderPath(organization, title, dropboxFolderName);
   let endpoint = "https://api.dropboxapi.com/2/files/list_folder";
   let body: Record<string, unknown> = { path: folder, recursive: false, include_deleted: false };
   const files: DropboxFile[] = [];

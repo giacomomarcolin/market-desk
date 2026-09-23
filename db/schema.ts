@@ -5,6 +5,7 @@ export const jobs = sqliteTable("jobs", {
   organization: text("organization").notNull(),
   department: text("department"),
   title: text("title").notNull(),
+  dropboxFolderName: text("dropbox_folder_name"),
   sector: text("sector").notNull(),
   location: text("location"),
   salary: text("salary"),

@@ -38,3 +38,14 @@ export function validManualSourceUrl(value) {
   }
   return text.slice(0, 2048);
 }
+
+export function validDropboxFolderName(value) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") throw new Error("Dropbox folder must be text.");
+  if (!value.trim()) return null;
+  const slug = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "")
+    .slice(0, 80).replace(/_+$/g, "");
+  if (!slug) throw new Error("Dropbox folder must contain letters or numbers.");
+  return slug;
+}

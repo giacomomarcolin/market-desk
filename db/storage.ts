@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
-import { downloadApplicationFile, getDropboxStatus, listApplicationFiles, uploadJobFileToDropbox } from "./dropbox";
+import { applicationFolderPath, downloadApplicationFile, getDropboxStatus, listApplicationFiles, uploadJobFileToDropbox } from "./dropbox";
 import { getAIStatus } from "./ai";
-import { trimmedField, validManualDeadline, validManualSector, validManualSourceUrl } from "./job-fields.js";
+import { trimmedField, validDropboxFolderName, validManualDeadline, validManualSector, validManualSourceUrl } from "./job-fields.js";
+import { preparedJobFiles } from "./prepared-files.js";
 
 type D1Row = Record<string, unknown>;
 type CreateJobInput = {
@@ -51,6 +52,7 @@ function mapJob(row: D1Row) {
     organization: row.organization,
     department: row.department,
     title: row.title,
+    dropboxFolderName: row.dropbox_folder_name ?? null,
     sector: row.sector,
     location: row.location,
     salary: row.salary,
@@ -91,6 +93,7 @@ export async function ensureMarketSchema() {
       organization TEXT NOT NULL,
       department TEXT,
       title TEXT NOT NULL,
+      dropbox_folder_name TEXT,
       sector TEXT NOT NULL,
       location TEXT,
       salary TEXT,
@@ -199,6 +202,9 @@ export async function ensureMarketSchema() {
   if (!jobColumns.results.some((column) => column.name === "notes")) {
     await d1.prepare("ALTER TABLE jobs ADD COLUMN notes TEXT").run();
   }
+  if (!jobColumns.results.some((column) => column.name === "dropbox_folder_name")) {
+    await d1.prepare("ALTER TABLE jobs ADD COLUMN dropbox_folder_name TEXT").run();
+  }
   const fileColumns = await d1.prepare("PRAGMA table_info(job_files)").all<{ name: string }>();
   const fileColumnNames = new Set(fileColumns.results.map((column) => column.name));
   if (!fileColumnNames.has("dropbox_path")) await d1.prepare("ALTER TABLE job_files ADD COLUMN dropbox_path TEXT").run();
@@ -270,12 +276,12 @@ export async function getJobDetails(jobId: string) {
     getDropboxStatus(),
   ]);
   const localFiles = files.results.map((row) => ({ id: String(row.id), label: String(row.label), filename: String(row.filename), contentType: String(row.content_type), sizeBytes: Number(row.size_bytes), uploadedAt: String(row.uploaded_at), dropboxPath: row.dropbox_path as string | null, dropboxStatus: row.dropbox_status || "not_synced", dropboxSyncedAt: row.dropbox_synced_at, dropboxError: row.dropbox_error, source: "market_desk" }));
-  const dropboxFiles = dropboxStatus.connected ? await listApplicationFiles(String(job.organization), String(job.title)) : [];
-  const filesByPath = new Map(dropboxFiles.map((file) => [file.path.toLowerCase(), file]));
-  const localWithDropbox = localFiles.filter((file) => !file.dropboxPath || !filesByPath.has(file.dropboxPath.toLowerCase()));
-  const preparedFiles = [...localWithDropbox, ...dropboxFiles.map((file) => ({ id: file.id, label: file.name, filename: file.name, contentType: "application/octet-stream", sizeBytes: file.sizeBytes || 0, uploadedAt: file.modifiedAt || "", dropboxPath: file.path, dropboxStatus: "synced", dropboxSyncedAt: file.modifiedAt, dropboxError: null, source: "dropbox", modifiedAt: file.modifiedAt }))];
+  const dropboxFolderName = job.dropbox_folder_name as string | null;
+  const dropboxFiles = dropboxStatus.connected ? await listApplicationFiles(String(job.organization), String(job.title), dropboxFolderName) : [];
+  const preparedFiles = preparedJobFiles(localFiles, dropboxFiles, dropboxStatus.connected);
   return {
     ...mapJob(job),
+    dropboxFolderPath: applicationFolderPath(String(job.organization), String(job.title), dropboxFolderName),
     sourceSnapshot: job.source_snapshot,
     notes: job.notes,
     capturedAt: job.captured_at,
@@ -351,6 +357,7 @@ type ManualJobFields = {
   location?: string | null;
   salary?: string | null;
   sourceUrl?: string | null;
+  dropboxFolderName?: string | null;
 };
 
 export async function updateJob(input: { id?: string; status?: string; starred?: boolean; bucket?: string; notes?: string } & ManualJobFields) {
@@ -371,6 +378,7 @@ export async function updateJob(input: { id?: string; status?: string; starred?:
   if (input.location !== undefined) { fields.push("location = ?"); values.push(trimmedField(input.location, "Location", 240)); }
   if (input.salary !== undefined) { fields.push("salary = ?"); values.push(trimmedField(input.salary, "Salary / compensation", 240)); }
   if (input.sourceUrl !== undefined) { fields.push("source_url = ?"); values.push(validManualSourceUrl(input.sourceUrl)); }
+  if (input.dropboxFolderName !== undefined) { fields.push("dropbox_folder_name = ?"); values.push(validDropboxFolderName(input.dropboxFolderName)); }
   if (!fields.length) return;
   fields.push("updated_at = ?"); values.push(now(), input.id);
   await db().prepare(`UPDATE jobs SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
@@ -428,7 +436,7 @@ export async function saveJobFile(jobId: string, file: File, label?: string) {
   await ensureMarketSchema();
   if (!jobId || !file?.name || file.size <= 0) throw new Error("Choose a file to upload.");
   if (file.size > 25 * 1024 * 1024) throw new Error("Files must be 25 MB or smaller.");
-  const job = await db().prepare("SELECT id,organization,title FROM jobs WHERE id = ?").bind(jobId).first<{ id: string; organization: string; title: string }>();
+  const job = await db().prepare("SELECT id,organization,title,dropbox_folder_name FROM jobs WHERE id = ?").bind(jobId).first<{ id: string; organization: string; title: string; dropbox_folder_name: string | null }>();
   if (!job) throw new Error("Job not found.");
   const fileId = id("file");
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-140) || "document";
@@ -438,13 +446,13 @@ export async function saveJobFile(jobId: string, file: File, label?: string) {
   await filesBucket().put(objectKey, bytes, { httpMetadata: { contentType } });
   await db().prepare("INSERT INTO job_files (id,job_id,label,filename,object_key,content_type,size_bytes,uploaded_at) VALUES (?,?,?,?,?,?,?,?)")
     .bind(fileId, jobId, label?.trim() || file.name, file.name, objectKey, contentType, file.size, now()).run();
-  const dropbox = await uploadJobFileToDropbox({ fileId, organization: job.organization, title: job.title, label: label?.trim() || file.name, filename: file.name, bytes });
+  const dropbox = await uploadJobFileToDropbox({ fileId, organization: job.organization, title: job.title, dropboxFolderName: job.dropbox_folder_name, label: label?.trim() || file.name, filename: file.name, bytes });
   return { id: fileId, dropboxStatus: dropbox.status, dropboxError: "error" in dropbox ? dropbox.error : null };
 }
 
 export async function syncJobFileToDropbox(fileId: string) {
   await ensureMarketSchema();
-  const metadata = await db().prepare(`SELECT f.id,f.label,f.filename,f.object_key,j.organization,j.title
+  const metadata = await db().prepare(`SELECT f.id,f.label,f.filename,f.object_key,j.organization,j.title,j.dropbox_folder_name
     FROM job_files f JOIN jobs j ON j.id=f.job_id WHERE f.id=?`).bind(fileId).first<D1Row>();
   if (!metadata) throw new Error("File not found.");
   const object = await filesBucket().get(String(metadata.object_key));
@@ -453,6 +461,7 @@ export async function syncJobFileToDropbox(fileId: string) {
     fileId: String(metadata.id),
     organization: String(metadata.organization),
     title: String(metadata.title),
+    dropboxFolderName: metadata.dropbox_folder_name as string | null,
     label: String(metadata.label),
     filename: String(metadata.filename),
     bytes: await object.arrayBuffer(),

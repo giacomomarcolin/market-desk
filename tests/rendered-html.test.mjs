@@ -76,7 +76,7 @@ test("uses deterministic safe application folder names and the JobMkt2026 applic
   assert.match(dropbox, /toLowerCase\(\)/);
   assert.match(dropbox, /replace\(\/\[\^a-z0-9\]\+\/g, "_"\)/);
   assert.match(dropbox, /replace\(\/_\+\/g, "_"\)/);
-  assert.match(dropbox, /\/JobMkt2026\/applications\/\$\{applicationFolderName/);
+  assert.match(dropbox, /\/JobMkt2026\/applications\/\$\{validDropboxFolderName\(dropboxFolderName \?\? null\) \|\| applicationFolderName/);
   assert.match(dropbox, /mode: "add", autorename: true/);
 });
 

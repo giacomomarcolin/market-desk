@@ -7,6 +7,7 @@ type Job = {
   organization: string;
   department: string | null;
   title: string;
+  dropboxFolderName: string | null;
   sector: string;
   location: string | null;
   salary: string | null;
@@ -25,6 +26,7 @@ type Job = {
 type JobRequirement = { id: string; label: string; completed: boolean; documentVersion: string | null };
 type JobFile = { id: string; label: string; filename: string; contentType: string; sizeBytes: number; uploadedAt: string; dropboxPath: string | null; dropboxStatus: "not_synced" | "syncing" | "synced" | "failed"; dropboxSyncedAt: string | null; dropboxError: string | null; source?: "dropbox" | "market_desk"; modifiedAt?: string | null };
 type JobDetails = Job & {
+  dropboxFolderPath: string;
   sourceSnapshot: string | null;
   notes: string | null;
   capturedAt: string;
@@ -345,7 +347,12 @@ export function MarketDesk() {
       await loadData();
       return false;
     } else if (selectedJob?.id === id) {
-      setSelectedJob((current) => current ? { ...current, ...patch } as JobDetails : current);
+      if ("dropboxFolderName" in patch || "organization" in patch || "title" in patch) {
+        const details = await fetch(`/api/jobs?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+        if (details.ok) setSelectedJob(await details.json());
+      } else {
+        setSelectedJob((current) => current ? { ...current, ...patch } as JobDetails : current);
+      }
     }
     return true;
   }
@@ -823,6 +830,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
     const saved = await onUpdate(job.id, {
       title: form.get("title"), organization: form.get("organization"), sector: form.get("sector"),
       deadline: form.get("deadline"), location: form.get("location"), salary: form.get("salary"), sourceUrl: form.get("sourceUrl"),
+      dropboxFolderName: form.get("dropboxFolderName"),
     });
     setDetailsSaving(false);
     if (saved) setEditingDetails(false);
@@ -860,6 +868,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
               <label>Location<input name="location" maxLength={240} defaultValue={job.location || ""} /></label>
               <label>Salary / compensation<input name="salary" maxLength={240} defaultValue={job.salary || ""} /></label>
               <label className="wide">Posting URL<input name="sourceUrl" type="url" maxLength={2048} defaultValue={job.sourceUrl || ""} /></label>
+              <label className="wide">Dropbox folder<input name="dropboxFolderName" maxLength={240} placeholder="mit_sloan_ties" defaultValue={job.dropboxFolderName || ""} /><small>Optional. Used for this job&apos;s folder under /JobMkt2026/applications/. Leave blank to use the automatically generated name. Changing this does not move files already stored in the previous Dropbox folder.</small></label>
             </div>
             {detailsError && <p className="edit-details-error" role="alert">{detailsError}</p>}
             <div className="edit-details-actions"><button type="button" className="button secondary" onClick={() => { setEditingDetails(false); setDetailsError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={detailsSaving}>{detailsSaving ? "Saving…" : "Save changes"}</button></div>
@@ -877,6 +886,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
 
           <section className="detail-section files-section">
             <div className="detail-heading"><div><p className="eyebrow">JOB-SPECIFIC MATERIALS</p><h3>Prepared files</h3></div><div className="file-heading-actions"><span>{job.files.length} file{job.files.length === 1 ? "" : "s"}</span>{dropboxConnected && <button type="button" className="button secondary" onClick={onRefreshDropbox} disabled={saving}>Refresh from Dropbox</button>}</div></div>
+            {dropboxConnected && <p className="prepared-dropbox-folder">Dropbox: {job.dropboxFolderPath}/</p>}
             <div className="files-list">
               {job.files.map((file) => <article className="file-row" key={file.id}><a className="file-main" href={file.source === "dropbox" ? `/api/files?path=${encodeURIComponent(file.dropboxPath || "")}` : `/api/files?id=${encodeURIComponent(file.id)}`}><span className="file-icon">DOC</span><span><strong>{file.label}</strong><small>{file.filename} · {fileSize(file.sizeBytes)}{(file.modifiedAt || file.dropboxSyncedAt) ? ` · Modified ${new Date(file.modifiedAt || file.dropboxSyncedAt!).toLocaleString()}` : ""}{file.dropboxPath ? ` · ${file.dropboxPath}` : ""}</small></span><b>Open / download</b></a><div className="file-sync"><span className={`sync-state ${file.dropboxStatus}`} title={file.dropboxError || file.dropboxPath || ""}>{file.dropboxStatus === "synced" ? "Dropbox ✓" : file.dropboxStatus === "syncing" ? "Syncing…" : file.dropboxStatus === "failed" ? "Sync failed" : "Tracker only"}</span>{dropboxConnected && file.source !== "dropbox" && file.dropboxStatus !== "synced" && <button type="button" onClick={() => onSyncFile(file.id)} disabled={saving}>Try sync</button>}</div></article>)}
               {!job.files.length && <div className="empty-files"><strong>No files in this Dropbox application folder yet</strong><span>Files saved directly to Dropbox will appear here after refresh.</span></div>}

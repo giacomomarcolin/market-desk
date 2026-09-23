@@ -179,6 +179,7 @@ tbody tr:hover { background: #f7f3eb; }
 .edit-job-grid label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .edit-job-grid label.wide { grid-column: 1 / -1; }
 .edit-job-grid input, .edit-job-grid select { width: 100%; min-width: 0; height: 38px; border: 1px solid var(--rule); background: white; padding: 0 9px; color: var(--ink); font-size: 11px; text-transform: none; letter-spacing: 0; }
+.edit-job-grid label small { color: var(--muted); font-size: 9px; font-weight: 400; line-height: 1.45; letter-spacing: 0; text-transform: none; }
 .edit-details-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
 .edit-details-error { margin: 10px 0 0; color: var(--burgundy); font-size: 10px; }
 .detail-section { padding: 24px 0; border-bottom: 1px solid var(--rule); }
@@ -190,6 +191,7 @@ tbody tr:hover { background: #f7f3eb; }
 .requirement-row input { width: 15px; height: 15px; accent-color: var(--olive); }.requirement-row strong { display: block; font: 600 12px Georgia, serif; }.requirement-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
 .requirement-add { margin-top: 10px; padding: 11px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; background: #efebe3; }.requirement-add label { display: grid; gap: 5px; color: var(--muted); font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }.requirement-add input { width: 100%; height: 38px; border: 1px solid var(--rule); background: white; padding: 0 10px; color: var(--ink); font-size: 11px; text-transform: none; letter-spacing: 0; }
 .files-list { display: grid; gap: 6px; }
+.prepared-dropbox-folder { margin: -5px 0 12px; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .file-row { min-height: 62px; padding: 8px 11px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--rule); background: #fffdf8; color: var(--ink); }.file-row:hover { border-color: #b8aea1; background: #f7f3eb; }
 .file-main { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; color: var(--ink); text-decoration: none; }
 .file-icon { width: 36px; height: 36px; display: grid; place-items: center; background: #e8e2d8; color: var(--burgundy); font-size: 8px; font-weight: 700; }.file-row strong { display: block; font: 600 12px Georgia, serif; }.file-row small { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; }.file-row b { color: var(--burgundy); font-size: 9px; }
