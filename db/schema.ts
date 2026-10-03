@@ -18,6 +18,7 @@ export const jobs = sqliteTable("jobs", {
   bucket: text("bucket").notNull().default("active"),
   nextAction: text("next_action"),
   notes: text("notes"),
+  notInterestedReason: text("not_interested_reason"),
   starred: integer("starred", { mode: "boolean" }).notNull().default(false),
   capturedAt: text("captured_at").notNull(),
   updatedAt: text("updated_at").notNull(),

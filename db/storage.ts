@@ -61,6 +61,7 @@ function mapJob(row: D1Row) {
     sourceUrl: row.source_url,
     status: row.status,
     bucket: row.bucket || "active",
+    notInterestedReason: row.not_interested_reason ?? null,
     requirementsDone: Number(row.requirements_done || 0),
     requirementsTotal: Number(row.requirements_total || 0),
     nextAction: row.next_action,
@@ -85,6 +86,13 @@ function mapSource(row: D1Row) {
   };
 }
 
+async function addJobColumnIfMissing(d1: D1Database, name: string, definition: string) {
+  const columns = await d1.prepare("PRAGMA table_info(jobs)").all<{ name: string }>();
+  if (!columns.results.some((column) => column.name === name)) {
+    await d1.prepare(`ALTER TABLE jobs ADD COLUMN ${name} ${definition}`).run();
+  }
+}
+
 export async function ensureMarketSchema() {
   const d1 = db();
   await d1.batch([
@@ -106,6 +114,7 @@ export async function ensureMarketSchema() {
       bucket TEXT NOT NULL DEFAULT 'active',
       next_action TEXT,
       notes TEXT,
+      not_interested_reason TEXT,
       starred INTEGER NOT NULL DEFAULT 0,
       captured_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -202,6 +211,7 @@ export async function ensureMarketSchema() {
   if (!jobColumns.results.some((column) => column.name === "notes")) {
     await d1.prepare("ALTER TABLE jobs ADD COLUMN notes TEXT").run();
   }
+  await addJobColumnIfMissing(d1, "not_interested_reason", "TEXT");
   if (!jobColumns.results.some((column) => column.name === "dropbox_folder_name")) {
     await d1.prepare("ALTER TABLE jobs ADD COLUMN dropbox_folder_name TEXT").run();
   }
@@ -360,7 +370,7 @@ type ManualJobFields = {
   dropboxFolderName?: string | null;
 };
 
-export async function updateJob(input: { id?: string; status?: string; starred?: boolean; bucket?: string; notes?: string } & ManualJobFields) {
+export async function updateJob(input: { id?: string; status?: string; starred?: boolean; bucket?: string; notes?: string; notInterestedReason?: string } & ManualJobFields) {
   await ensureMarketSchema();
   if (!input.id) throw new Error("Job id is required.");
   const fields: string[] = [];
@@ -369,6 +379,7 @@ export async function updateJob(input: { id?: string; status?: string; starred?:
   if (input.bucket && ["active", "maybe", "skipped"].includes(input.bucket)) { fields.push("bucket = ?"); values.push(input.bucket); }
   if (typeof input.starred === "boolean") { fields.push("starred = ?"); values.push(input.starred ? 1 : 0); }
   if (typeof input.notes === "string") { fields.push("notes = ?"); values.push(input.notes.slice(0, 5000) || null); }
+  if (typeof input.notInterestedReason === "string") { fields.push("not_interested_reason = ?"); values.push(input.notInterestedReason.slice(0, 5000) || null); }
   if (input.title !== undefined) { fields.push("title = ?"); values.push(trimmedField(input.title, "Title", 240, true)); }
   if (input.organization !== undefined) { fields.push("organization = ?"); values.push(trimmedField(input.organization, "Institution / Company", 240, true)); }
   if (input.sector !== undefined) {

@@ -16,6 +16,7 @@ type Job = {
   sourceUrl: string | null;
   status: string;
   bucket: "active" | "maybe" | "skipped";
+  notInterestedReason: string | null;
   requirementsDone: number;
   requirementsTotal: number;
   nextAction: string | null;
@@ -60,7 +61,7 @@ type Task = {
 type DropboxStatus = { configured: boolean; appKeySaved: boolean; secureStorageReady: boolean; connected: boolean; accountId: string | null; connectedAt: string | null; syncedFiles: number; failedFiles: number; pendingFiles: number };
 type AIStatus = { configured: boolean; secureStorageReady: boolean; configuredAt: string | null; model: string };
 type DashboardData = { jobs: Job[]; sources: SourceMonitor[]; tasks: Task[]; dropbox: DropboxStatus; ai: AIStatus };
-type View = "overview" | "jobs" | "sources";
+type View = "overview" | "jobs" | "not-interested" | "sources";
 type PipelineFilter = "in-progress" | "submitted" | "interview" | "flyout" | "offer";
 type JobDraft = {
   sourceUrl: string;
@@ -301,15 +302,15 @@ export function MarketDesk() {
     const today = todaySortKey();
     const byName = (a: Job, b: Job) => a.organization.localeCompare(b.organization) || a.title.localeCompare(b.title);
     return data.jobs.filter((job) => {
-      const matchesSearch = !query || [job.organization, job.department, job.title, job.location, job.source]
+      const matchesSearch = !query || [job.organization, job.department, job.title, job.location, job.source, view === "not-interested" ? job.notInterestedReason : null]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(query);
       const matchesSector = sector === "All sectors" || job.sector === sector;
-      const effectiveBucket = view === "overview" ? "active" : bucket;
+      const effectiveBucket = view === "overview" ? "active" : view === "not-interested" ? "skipped" : bucket;
       const matchesBucket = effectiveBucket === "all" || job.bucket === effectiveBucket || (view === "overview" && job.bucket === "maybe");
-      const matchesPipeline = !pipelineFilter || pipelineFilters[pipelineFilter].statuses.includes(job.status);
+      const matchesPipeline = !pipelineFilter || (job.bucket !== "skipped" && pipelineFilters[pipelineFilter].statuses.includes(job.status));
       return matchesSearch && matchesSector && matchesBucket && matchesPipeline;
     }).sort((a, b) => {
       if (sortBy === "status") return (statusRank.get(a.status) ?? 99) - (statusRank.get(b.status) ?? 99) || compareDeadlines(a.deadline, b.deadline, "soonest", today) || byName(a, b);
@@ -541,10 +542,9 @@ export function MarketDesk() {
   }
 
   async function moveJob(job: JobDetails, nextBucket: "active" | "maybe" | "skipped") {
-    await updateJob(job.id, { bucket: nextBucket });
+    if (!await updateJob(job.id, { bucket: nextBucket })) return;
     if (nextBucket === "skipped") {
-      setSelectedJob(null);
-      setNotice("Job moved to Skipped. It remains saved in the opportunity ledger.");
+      setNotice("Job moved to Not Interested. You can add a reason below.");
     } else {
       setNotice(nextBucket === "maybe" ? "Job moved to Maybe." : "Job restored to the active dashboard.");
     }
@@ -692,7 +692,8 @@ export function MarketDesk() {
         <nav className="side-nav">
           <button className={view === "overview" ? "selected" : ""} onClick={() => navigate("overview")}><span>01</span> Overview</button>
           <button className={view === "jobs" ? "selected" : ""} onClick={() => navigate("jobs")}><span>02</span> All jobs <b>{data.jobs.length}</b></button>
-          <button className={view === "sources" ? "selected" : ""} onClick={() => navigate("sources")}><span>03</span> Sources <b>{data.sources.length}</b></button>
+          <button className={view === "not-interested" ? "selected" : ""} onClick={() => navigate("not-interested")}><span>03</span> Not Interested <b>{data.jobs.filter((job) => job.bucket === "skipped").length}</b></button>
+          <button className={view === "sources" ? "selected" : ""} onClick={() => navigate("sources")}><span>04</span> Sources <b>{data.sources.length}</b></button>
         </nav>
         <div className="sidebar-footer"><span className="privacy-dot" /> Private workspace</div>
       </aside>
@@ -701,7 +702,7 @@ export function MarketDesk() {
         <header className="topbar">
           <div>
             <p className="eyebrow">YOUR SEARCH, ONE SYSTEM</p>
-            <h1>{view === "sources" ? "Source watch" : view === "jobs" ? "Opportunity ledger" : greeting}</h1>
+            <h1>{view === "sources" ? "Source watch" : view === "jobs" ? "Opportunity ledger" : view === "not-interested" ? "Not Interested" : greeting}</h1>
           </div>
           <div className="top-actions">
             <button className={`button secondary ai-button ${data.ai.configured ? "connected" : ""}`} onClick={() => setAiOpen(true)}><span className="ai-dot" /> AI extraction</button>
@@ -745,7 +746,7 @@ export function MarketDesk() {
             <section className="workspace-grid">
               <div className="jobs-panel">
                 <div className="panel-heading">
-                  <div><p className="eyebrow">{pipelineFilter ? "PIPELINE VIEW" : view === "overview" ? "ACTIVE LEDGER" : "COMPLETE LEDGER"}</p><h2>{pipelineFilter ? pipelineFilters[pipelineFilter].label : view === "overview" ? "Applications in motion" : "All opportunities"}</h2></div>
+                  <div><p className="eyebrow">{pipelineFilter ? "PIPELINE VIEW" : view === "overview" ? "ACTIVE LEDGER" : view === "not-interested" ? "NOT INTERESTED" : "COMPLETE LEDGER"}</p><h2>{pipelineFilter ? pipelineFilters[pipelineFilter].label : view === "overview" ? "Applications in motion" : view === "not-interested" ? "Reviewed opportunities you decided not to pursue" : "All opportunities"}</h2></div>
                   <div className="filters">
                     {pipelineFilter && <button className="clear-filter" onClick={() => setPipelineFilter(null)}>Clear pipeline filter</button>}
                     <label><span className="sr-only">Search jobs</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search institution or role" /></label>
@@ -753,8 +754,8 @@ export function MarketDesk() {
                     <label><span className="sr-only">Sort jobs</span><select className="sort-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="deadline-soonest">Deadline: soonest upcoming</option><option value="deadline-latest">Deadline: latest first</option><option value="status">Application status</option><option value="updated">Recently updated</option></select></label>
                   </div>
                 </div>
-                {view === "jobs" && <div className="bucket-tabs" role="group" aria-label="Job collection"><button className={bucket === "active" ? "selected" : ""} onClick={() => setBucket("active")}>Active <span>{data.jobs.filter((job) => job.bucket === "active").length}</span></button><button className={bucket === "maybe" ? "selected" : ""} onClick={() => setBucket("maybe")}>Maybe <span>{data.jobs.filter((job) => job.bucket === "maybe").length}</span></button><button className={bucket === "skipped" ? "selected" : ""} onClick={() => setBucket("skipped")}>Skipped <span>{data.jobs.filter((job) => job.bucket === "skipped").length}</span></button><button className={bucket === "all" ? "selected" : ""} onClick={() => setBucket("all")}>All <span>{data.jobs.length}</span></button></div>}
-                <JobTable jobs={view === "overview" ? filteredJobs.slice(0, 6) : filteredJobs} loading={loading || detailsLoading} onUpdate={updateJob} onOpen={openJob} />
+                {view === "jobs" && <div className="bucket-tabs" role="group" aria-label="Job collection"><button className={bucket === "active" ? "selected" : ""} onClick={() => setBucket("active")}>Active <span>{data.jobs.filter((job) => job.bucket === "active").length}</span></button><button className={bucket === "maybe" ? "selected" : ""} onClick={() => setBucket("maybe")}>Maybe <span>{data.jobs.filter((job) => job.bucket === "maybe").length}</span></button><button className={bucket === "skipped" ? "selected" : ""} onClick={() => setBucket("skipped")}>Not Interested <span>{data.jobs.filter((job) => job.bucket === "skipped").length}</span></button><button className={bucket === "all" ? "selected" : ""} onClick={() => setBucket("all")}>All <span>{data.jobs.length}</span></button></div>}
+                <JobTable jobs={view === "overview" ? filteredJobs.slice(0, 6) : filteredJobs} showReason={view === "not-interested"} loading={loading || detailsLoading} onUpdate={updateJob} onOpen={openJob} />
               </div>
             </section>
           </>
@@ -775,22 +776,23 @@ function Metric({ label, value, detail, tone = "", onClick }: { label: string; v
   return <button type="button" className={`metric ${tone}`} onClick={onClick} aria-label={`Show ${label.toLowerCase()}: ${value}`}><span className="metric-label">{label}</span><span className="metric-value"><strong>{value}</strong><span>{detail}</span></span></button>;
 }
 
-function JobTable({ jobs, loading, onUpdate, onOpen }: { jobs: Job[]; loading: boolean; onUpdate: (id: string, patch: Record<string, unknown>) => void; onOpen: (id: string) => void }) {
+function JobTable({ jobs, showReason, loading, onUpdate, onOpen }: { jobs: Job[]; showReason: boolean; loading: boolean; onUpdate: (id: string, patch: Record<string, unknown>) => void; onOpen: (id: string) => void }) {
   if (loading) return <div className="table-loading">Loading your market ledger…</div>;
   if (!jobs.length) return <div className="table-loading">No jobs match these filters yet. Capture one from any source to begin.</div>;
   const now = new Date();
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Position</th><th>Institution / Company</th><th>Sector</th><th>Location / salary</th><th>Deadline</th><th>Requirements</th><th>Status</th><th><span className="sr-only">Star</span></th></tr></thead>
+        <thead><tr><th>Position</th><th>Institution / Company</th><th>Sector</th>{showReason && <th>Reason</th>}<th>Location / salary</th><th>Deadline</th><th>Requirements</th><th>Status</th><th><span className="sr-only">Star</span></th></tr></thead>
         <tbody>{jobs.map((job) => {
           const progress = job.requirementsTotal ? Math.round((job.requirementsDone / job.requirementsTotal) * 100) : 0;
           const deadline = deadlinePresentation(job.deadline, now);
           return (
             <tr key={job.id}>
-              <td><button className="opportunity opportunity-button" onClick={() => onOpen(job.id)}><strong>{job.title}</strong><span>{job.source}{job.bucket === "maybe" ? " · Maybe" : job.bucket === "skipped" ? " · Skipped" : ""}</span></button></td>
+              <td><button className="opportunity opportunity-button" onClick={() => onOpen(job.id)}><strong>{job.title}</strong><span>{job.source}{job.bucket === "maybe" ? " · Maybe" : job.bucket === "skipped" ? " · Not Interested" : ""}</span></button></td>
               <td className="organization-cell">{job.organization}</td>
               <td><span className={`sector sector-${job.sector.toLowerCase()}`}>{job.sector}</span></td>
+              {showReason && <td><span className="reason-preview" title={job.notInterestedReason || undefined}>{job.notInterestedReason || "—"}</span></td>}
               <td><span className="job-place">{job.location || "Not listed"}</span><span className={`cell-note ${job.salary ? "salary" : ""}`}>{job.salary || "Salary not listed"}</span></td>
               <td><strong className={`deadline ${deadline.tone}`}>{deadline.label}</strong><span className={`cell-note deadline-note ${deadline.tone}`}>{deadline.detail}</span></td>
               <td><div className="requirement"><span>{job.requirementsDone}/{job.requirementsTotal || "—"}</span><div className="mini-bar"><i style={{ width: `${progress}%` }} /></div></div></td>
@@ -850,10 +852,10 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
           {job.sourceUrl ? <a className="button primary" href={job.sourceUrl} target="_blank" rel="noreferrer">Open original posting ↗</a> : <span className="missing-link">No posting link was captured</span>}
           <label><span>Application status</span><select value={job.status} onChange={(event) => onUpdate(job.id, { status: event.target.value })}>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label>
           <div className="fit-actions">
-            {job.bucket !== "active" && <button className="button secondary" onClick={() => onMove(job, "active")}>Restore to dashboard</button>}
+            {job.bucket !== "active" && <button className="button secondary" onClick={() => onMove(job, "active")}>{job.bucket === "skipped" ? "Restore to active" : "Restore to dashboard"}</button>}
             <button className={`button secondary ${job.bucket === "maybe" ? "is-selected" : ""}`} onClick={() => onMove(job, job.bucket === "maybe" ? "active" : "maybe")}>Maybe</button>
-            <button className="button skip" onClick={() => onMove(job, "skipped")}>Skip</button>
-            <button className="button danger" onClick={() => onDelete(job)} disabled={saving}>Delete job</button>
+            {job.bucket !== "skipped" && <button className="button skip" onClick={() => onMove(job, "skipped")}>Not Interested</button>}
+            <button className="button danger" onClick={() => onDelete(job)} disabled={saving}>Permanently delete job</button>
           </div>
         </div>
 
@@ -874,6 +876,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
             <div className="edit-details-actions"><button type="button" className="button secondary" onClick={() => { setEditingDetails(false); setDetailsError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={detailsSaving}>{detailsSaving ? "Saving…" : "Save changes"}</button></div>
           </form>}
           <JobNoteEditor job={job} onSave={onUpdate} />
+          {job.bucket === "skipped" && <JobReasonEditor job={job} onSave={onUpdate} />}
 
           <section className="detail-section">
             <div className="detail-heading"><div><p className="eyebrow">EXTRACTED CHECKLIST</p><h3>Application requirements</h3></div><span>{job.requirements.filter((item) => item.completed).length}/{job.requirements.length} prepared</span></div>
@@ -922,6 +925,26 @@ function JobNoteEditor({ job, onSave }: { job: JobDetails; onSave: (id: string, 
     <form className="job-note-form" onSubmit={saveNote}>
       <textarea value={note} onChange={(event) => { setNote(event.target.value); setState("unsaved"); }} maxLength={5000} rows={4} placeholder="Add fit notes, contacts, interview details, or reminders for this job…" aria-label={`Notes for ${job.title}`} />
       <div><span>{note.length.toLocaleString()} / 5,000</span><button className="button secondary" type="submit" disabled={state === "saving" || state === "saved"}>{state === "saving" ? "Saving…" : "Save note"}</button></div>
+    </form>
+  </section>;
+}
+
+function JobReasonEditor({ job, onSave }: { job: JobDetails; onSave: (id: string, patch: Record<string, unknown>) => Promise<boolean> }) {
+  const [reason, setReason] = useState(job.notInterestedReason || "");
+  const [state, setState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
+
+  async function saveReason(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setState("saving");
+    const saved = await onSave(job.id, { notInterestedReason: reason });
+    setState(saved ? "saved" : "error");
+  }
+
+  return <section className="detail-section note-section">
+    <div className="detail-heading"><div><p className="eyebrow">NOT INTERESTED</p><h3>Reason</h3></div><span>{state === "saving" ? "Saving…" : state === "unsaved" ? "Unsaved changes" : state === "error" ? "Could not save" : "Saved"}</span></div>
+    <form className="job-note-form" onSubmit={saveReason}>
+      <textarea value={reason} onChange={(event) => { setReason(event.target.value); setState("unsaved"); }} maxLength={5000} rows={4} placeholder="Why are you not interested in this position?" aria-label={`Reason for ${job.title}`} />
+      <div><span>{reason.length.toLocaleString()} / 5,000</span><button className="button secondary" type="submit" disabled={state === "saving" || state === "saved"}>{state === "saving" ? "Saving…" : "Save reason"}</button></div>
     </form>
   </section>;
 }

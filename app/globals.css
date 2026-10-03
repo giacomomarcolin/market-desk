@@ -120,6 +120,7 @@ tbody tr:hover { background: #f7f3eb; }
 .deadline { display: block; font: 600 12px Georgia, serif; white-space: nowrap; }
 .deadline.passed { color: #8a7779; }.deadline.urgent { color: var(--burgundy); }.deadline.invalid { color: var(--amber); }.deadline-note.urgent { color: var(--burgundy); font-weight: 700; }.deadline-note.passed, .deadline-note.missing { color: #8a8178; }
 .cell-note { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+.reason-preview { display: -webkit-box; max-width: 190px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: pre-line; }
 .requirement { min-width: 80px; }
 .requirement > span { color: var(--muted); font-size: 10px; }
 .mini-bar { height: 3px; margin-top: 5px; background: #ddd7cd; }
