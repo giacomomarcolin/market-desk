@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { spreadsheetRow } from "../db/spreadsheet-row.js";
 
 type Job = {
   id: string;
@@ -767,7 +768,7 @@ export function MarketDesk() {
       {monitorOpen && <MonitorModal onClose={() => setMonitorOpen(false)} onSubmit={submitMonitor} saving={saving} />}
       {dropboxOpen && <DropboxModal status={data.dropbox} onClose={() => setDropboxOpen(false)} onConfigure={configureDropbox} onSync={() => syncDropbox()} onDisconnect={disconnectDropboxConnection} busy={dropboxBusy} />}
       {aiOpen && <AIModal status={data.ai} onClose={() => setAiOpen(false)} onConfigure={configureAI} onDisconnect={disconnectAI} busy={aiBusy} />}
-      {selectedJob && <JobWorkspace job={selectedJob} dropboxConnected={data.dropbox.connected} onClose={() => setSelectedJob(null)} onMove={moveJob} onUpdate={updateJob} onToggleRequirement={toggleRequirement} onAddRequirement={addRequirement} onDelete={deleteSelectedJob} onUpload={uploadFile} onSyncFile={(fileId) => syncDropbox(fileId)} onRefreshDropbox={refreshSelectedJob} saving={saving || dropboxBusy} />}
+      {selectedJob && <JobWorkspace job={selectedJob} dropboxConnected={data.dropbox.connected} onClose={() => setSelectedJob(null)} onMove={moveJob} onUpdate={updateJob} onToggleRequirement={toggleRequirement} onAddRequirement={addRequirement} onDelete={deleteSelectedJob} onUpload={uploadFile} onSyncFile={(fileId) => syncDropbox(fileId)} onRefreshDropbox={refreshSelectedJob} onNotice={setNotice} saving={saving || dropboxBusy} />}
     </div>
   );
 }
@@ -806,7 +807,7 @@ function JobTable({ jobs, showReason, loading, onUpdate, onOpen }: { jobs: Job[]
   );
 }
 
-function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onToggleRequirement, onAddRequirement, onDelete, onUpload, onSyncFile, onRefreshDropbox, saving }: {
+function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onToggleRequirement, onAddRequirement, onDelete, onUpload, onSyncFile, onRefreshDropbox, onNotice, saving }: {
   job: JobDetails;
   dropboxConnected: boolean;
   onClose: () => void;
@@ -818,11 +819,27 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
   onUpload: (event: FormEvent<HTMLFormElement>) => void;
   onSyncFile: (fileId: string) => void;
   onRefreshDropbox: () => void;
+  onNotice: (message: string) => void;
   saving: boolean;
 }) {
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [detailsSaving, setDetailsSaving] = useState(false);
+  const [copiedSpreadsheetRow, setCopiedSpreadsheetRow] = useState(false);
+  const [spreadsheetCopyError, setSpreadsheetCopyError] = useState("");
+
+  async function copySpreadsheetRow() {
+    try {
+      await navigator.clipboard.writeText(spreadsheetRow(job));
+      setSpreadsheetCopyError("");
+      setCopiedSpreadsheetRow(true);
+      window.setTimeout(() => setCopiedSpreadsheetRow(false), 1600);
+    } catch {
+      const message = "Could not copy spreadsheet row. Check clipboard permissions and try again.";
+      setSpreadsheetCopyError(message);
+      onNotice(message);
+    }
+  }
 
   async function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -849,6 +866,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
 
         <div className="drawer-actions">
           <button className="button secondary" onClick={() => setEditingDetails((value) => !value)}>{editingDetails ? "Close edit" : "Edit details"}</button>
+          <button type="button" className="button secondary" onClick={copySpreadsheetRow}>{copiedSpreadsheetRow ? "Copied ✓" : "Copy spreadsheet row"}</button>
           {job.sourceUrl ? <a className="button primary" href={job.sourceUrl} target="_blank" rel="noreferrer">Open original posting ↗</a> : <span className="missing-link">No posting link was captured</span>}
           <label><span>Application status</span><select value={job.status} onChange={(event) => onUpdate(job.id, { status: event.target.value })}>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label>
           <div className="fit-actions">
@@ -860,6 +878,7 @@ function JobWorkspace({ job, dropboxConnected, onClose, onMove, onUpdate, onTogg
         </div>
 
         <div className="drawer-content">
+          {spreadsheetCopyError && <div className="notice" role="alert">{spreadsheetCopyError}</div>}
           {editingDetails && <form className="edit-job-details" onSubmit={saveDetails}>
             <div className="detail-heading"><div><p className="eyebrow">MANUAL CORRECTION</p><h3>Edit job details</h3></div></div>
             <div className="edit-job-grid">
