@@ -2,7 +2,7 @@
   "name": "Market Desk",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
   "postCreateCommand": "npm ci",
-  "postStartCommand": "bash .devcontainer/start-market-desk.sh",
+  "postAttachCommand": "bash .devcontainer/start-market-desk.sh",
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
