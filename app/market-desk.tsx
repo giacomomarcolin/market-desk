@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { spreadsheetRow } from "../db/spreadsheet-row.js";
+import { exportFilename, selectedJobsCsv } from "../db/jobs-export.js";
 
 type Job = {
   id: string;
@@ -685,6 +686,23 @@ export function MarketDesk() {
     if (!response.ok) setNotice("That source review could not be recorded.");
   }
 
+  function downloadSpreadsheet() {
+    const { count, csv } = selectedJobsCsv(data.jobs);
+    if (!count) {
+      setNotice("No submitted or starred jobs to export.");
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFilename();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice(`Downloaded ${count} job${count === 1 ? "" : "s"}.`);
+  }
+
   return (
     <div className="market-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -749,6 +767,7 @@ export function MarketDesk() {
                 <div className="panel-heading">
                   <div><p className="eyebrow">{pipelineFilter ? "PIPELINE VIEW" : view === "overview" ? "ACTIVE LEDGER" : view === "not-interested" ? "NOT INTERESTED" : "COMPLETE LEDGER"}</p><h2>{pipelineFilter ? pipelineFilters[pipelineFilter].label : view === "overview" ? "Applications in motion" : view === "not-interested" ? "Reviewed opportunities you decided not to pursue" : "All opportunities"}</h2></div>
                   <div className="filters">
+                    {view === "jobs" && <button className="button secondary" onClick={downloadSpreadsheet}>Download spreadsheet</button>}
                     {pipelineFilter && <button className="clear-filter" onClick={() => setPipelineFilter(null)}>Clear pipeline filter</button>}
                     <label><span className="sr-only">Search jobs</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search institution or role" /></label>
                     <label><span className="sr-only">Filter by sector</span><select value={sector} onChange={(event) => setSector(event.target.value)}><option>All sectors</option><option>Academic</option><option>Postdoc</option><option>Industry</option><option>Government</option></select></label>
